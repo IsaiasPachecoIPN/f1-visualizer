@@ -1,0 +1,13 @@
+<div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '16px' , padding: '10px'}">
+  <div [ngStyle]="{ display: 'flex', gap: '8px' }">
+    <button 
+        z-button 
+        (click)="onStart()"
+        >Start</button>
+    <button z-button (click)="onPause()">Pause</button>
+    <button z-button (click)="onStop()">Stop</button>
+  </div>
+  <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
+    <z-switch (checkChange)="onToggleShowAllDrivers()">Show All Drivers</z-switch>
+  </div>
+</div>

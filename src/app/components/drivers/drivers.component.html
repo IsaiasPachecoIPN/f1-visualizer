@@ -1,0 +1,9 @@
+<div [ngStyle]="{ padding: '10px' }">
+  <ul>
+    <li *ngFor="let driver of drivers" style="display: flex; align-items: center; margin-bottom: 5px;">
+      <app-car [color]="driver.car_color"></app-car>
+      <img [src]="driver.headshot_url" alt="{{ driver.full_name }}" width="50" style="margin-left: 10px; margin-right: 10px;">
+      <span>{{ driver.full_name }} ({{ driver.driver_number }}) - {{ driver.team_name }}</span>
+    </li>
+  </ul>
+</div>
