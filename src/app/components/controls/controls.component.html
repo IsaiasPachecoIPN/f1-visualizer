@@ -7,9 +7,24 @@
     <button z-button (click)="onPause()">Pause</button>
     <button z-button (click)="onStop()">Stop</button>
   </div>
+  
   <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
     <z-switch (checkChange)="onToggleShowAllDrivers()">Show All Drivers</z-switch>
   </div>
+  
+  <div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '8px' }">
+    <label>Simulation Speed:</label>
+    <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
+      <button z-button size="sm" (click)="decreaseSpeed()" [disabled]="(speedMultiplier$ | async) === speedOptions[0].value">−</button>
+      <select [ngModel]="speedMultiplier$ | async" (change)="onSpeedChange($event)" [ngStyle]="{ minWidth: '80px' }">
+        <option *ngFor="let option of speedOptions" [value]="option.value">
+          {{option.label}}
+        </option>
+      </select>
+      <button z-button size="sm" (click)="increaseSpeed()" [disabled]="(speedMultiplier$ | async) === speedOptions[speedOptions.length - 1].value">+</button>
+    </div>
+  </div>
+  
   <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
     <label for="session-select">Session:</label>
     <select id="session-select" [ngModel]="selectedSession" (change)="onSessionChange($event)">

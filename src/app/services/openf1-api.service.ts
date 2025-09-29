@@ -88,6 +88,18 @@ export class Openf1ApiService {
     );
   }
 
+  getSessionTimeBounds(): Observable<{startTime: Date, endTime: Date}> {
+    return this.getSessionInfo().pipe(
+      map(sessions => {
+        const session = sessions[0];
+        return {
+          startTime: new Date(session.date_start),
+          endTime: new Date(session.date_end)
+        };
+      })
+    );
+  }
+
   getDrivers(): Observable<any[]> {
     const url = `${this.baseUrl}/drivers?session_key=${this.sessionKey}`;
     if (this.driverDataCache.has(url)) {

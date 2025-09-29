@@ -50,15 +50,25 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   private minZoom = 0.1;
   private maxZoom = 5;
 
-  // Configuration
+  // Configuration and timing
   private readonly MASS_QUERY_START_TIME = '2023-10-29T20:30:00+00:00';
   private showAllDrivers = false; // Flag to control number of drivers
   private singleDriverNumber = 1; // Driver to show when showAllDrivers is false
+  
+  // Time-based animation properties
+  private sessionStartTime: Date | null = null;
+  private sessionEndTime: Date | null = null;
+  private currentSimulationTime: Date | null = null;
+  private lastUpdateTime: number = 0;
+  private speedMultiplier: number = 10;
 
   constructor(
     private openf1ApiService: Openf1ApiService,
     private animationControlService: AnimationControlService
-  ) {}
+  ) {
+    // Initialize speed multiplier from the service
+    this.speedMultiplier = this.animationControlService.getSpeedMultiplier();
+  }
 
   ngAfterViewInit(): void {
     const canvasEl = this.canvas.nativeElement;
@@ -79,11 +89,19 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.animationControlService.pause$.subscribe(() => this.pauseAnimation()),
       this.animationControlService.stop$.subscribe(() => this.stopAnimation()),
       this.animationControlService.toggleShowAllDrivers$.subscribe(() => this.toggleShowAllDrivers()),
+      this.animationControlService.speedChanged$.subscribe((speed) => this.onSpeedChanged(speed)),
+      this.animationControlService.timeSeek$.subscribe((time) => this.seekToTime(time)),
+      this.animationControlService.speedMultiplier$.subscribe((speed) => {
+        this.speedMultiplier = speed;
+      }),
       this.animationControlService.sessionChanged$.subscribe(() => {
         this.drivers = [];
         this.trajectories.clear();
         this.carImages.clear();
         this.trackTrajectory = [];
+        this.sessionStartTime = null;
+        this.sessionEndTime = null;
+        this.currentSimulationTime = null;
         this.stopAnimation();
         this.loadAllDriverData();
       })
@@ -118,6 +136,15 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   }
 
   loadAllDriverData(): void {
+    // First get session timing information
+    this.openf1ApiService.getSessionTimeBounds().subscribe(bounds => {
+      this.sessionStartTime = bounds.startTime;
+      this.sessionEndTime = bounds.endTime;
+      this.currentSimulationTime = new Date(bounds.startTime);
+      // Ensure the animation control service is immediately updated with the start time
+      this.animationControlService.setCurrentTime(this.currentSimulationTime);
+    });
+
     this.openf1ApiService.getDrivers().pipe(
       switchMap(drivers => {
         if (this.showAllDrivers) {
@@ -146,7 +173,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     ).subscribe(allTrajectories => {
       allTrajectories.forEach((trajectory, index) => {
         const driver = this.drivers[index];
-        this.trajectories.set(driver.driver_number, trajectory);
+        // Sort trajectory by timestamp to ensure proper ordering
+        const sortedTrajectory = trajectory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        this.trajectories.set(driver.driver_number, sortedTrajectory);
       });
 
       const imageLoadPromises = this.drivers.map(driver => {
@@ -168,21 +197,29 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
       Promise.all(imageLoadPromises).then(() => {
         console.log('All car images loaded');
+        // Update cars at the initial time
+        this.updateCarsAtCurrentTime();
+        // Make sure the time display shows the start time
+        if (this.currentSimulationTime) {
+          this.animationControlService.setCurrentTime(this.currentSimulationTime);
+        }
       });
     });
   }
 
   startAnimation(): void {
-    if (this.animationFrameId) {
+    if (this.animationFrameId || !this.sessionStartTime) {
       return;
     }
     this.isPaused = false;
+    this.lastUpdateTime = performance.now();
     this.animate();
   }
 
   pauseAnimation(): void {
     this.isPaused = !this.isPaused;
-    if (!this.isPaused) {
+    if (!this.isPaused && !this.animationFrameId) {
+      this.lastUpdateTime = performance.now();
       this.animate();
     }
   }
@@ -192,8 +229,99 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
-    this.currentFrame = 0;
+    if (this.sessionStartTime) {
+      this.currentSimulationTime = new Date(this.sessionStartTime);
+      this.animationControlService.setCurrentTime(this.currentSimulationTime);
+      this.updateCarsAtCurrentTime();
+    }
     this.drawTrack();
+  }
+
+  onSpeedChanged(speed: number): void {
+    this.speedMultiplier = speed;
+  }
+
+  seekToTime(targetTime: Date): void {
+    this.currentSimulationTime = new Date(targetTime);
+    this.animationControlService.setCurrentTime(this.currentSimulationTime);
+    this.updateCarsAtCurrentTime();
+  }
+
+  private animate(): void {
+    if (this.isPaused) {
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+      return;
+    }
+
+    if (!this.currentSimulationTime || !this.sessionEndTime) {
+      return;
+    }
+
+    const now = performance.now();
+    const deltaTime = now - this.lastUpdateTime;
+    this.lastUpdateTime = now;
+
+    // Calculate how much simulation time has passed
+    const simulationDelta = deltaTime * this.speedMultiplier;
+    this.currentSimulationTime = new Date(this.currentSimulationTime.getTime() + simulationDelta);
+
+    // Check if we've reached the end of the session
+    if (this.currentSimulationTime >= this.sessionEndTime) {
+      this.currentSimulationTime = new Date(this.sessionEndTime);
+      this.animationControlService.setCurrentTime(this.currentSimulationTime);
+      this.updateCarsAtCurrentTime();
+      this.stopAnimation();
+      return;
+    }
+
+    // Update the control service with current time
+    this.animationControlService.setCurrentTime(this.currentSimulationTime);
+
+    // Draw the current frame
+    this.drawTrack();
+    this.updateCarsAtCurrentTime();
+
+    this.animationFrameId = requestAnimationFrame(() => this.animate());
+  }
+
+  private updateCarsAtCurrentTime(): void {
+    if (!this.currentSimulationTime) return;
+
+    this.drivers.forEach(driver => {
+      const driverTrajectory = this.trajectories.get(driver.driver_number);
+      if (driverTrajectory && driverTrajectory.length > 0) {
+        const position = this.findPositionAtTime(driverTrajectory, this.currentSimulationTime!);
+        if (position) {
+          this.drawCar(position, driver.driver_number);
+        }
+      }
+    });
+  }
+
+  private findPositionAtTime(trajectory: any[], targetTime: Date): any | null {
+    if (trajectory.length === 0) return null;
+
+    const targetTimestamp = targetTime.getTime();
+
+    // Find the closest position by timestamp
+    let closestIndex = 0;
+    let closestDiff = Math.abs(new Date(trajectory[0].date).getTime() - targetTimestamp);
+
+    for (let i = 1; i < trajectory.length; i++) {
+      const diff = Math.abs(new Date(trajectory[i].date).getTime() - targetTimestamp);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestIndex = i;
+      } else {
+        // Since trajectory is sorted, we can break early if diff starts increasing
+        break;
+      }
+    }
+
+    return trajectory[closestIndex];
   }
 
   private setupResponsiveCanvas(): void {
@@ -335,30 +463,6 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.drawTrack();
   }
 
-  private animate(): void {
-    const maxFrames = Math.max(...Array.from(this.trajectories.values()).map(t => t.length));
-    if (this.isPaused || this.currentFrame >= maxFrames) {
-      if (this.animationFrameId) {
-        cancelAnimationFrame(this.animationFrameId);
-        this.animationFrameId = null;
-      }
-      return;
-    }
-
-    this.drawTrack();
-
-    this.drivers.forEach(driver => {
-      const driverTrajectory = this.trajectories.get(driver.driver_number);
-      if (driverTrajectory && this.currentFrame < driverTrajectory.length) {
-        const position = driverTrajectory[this.currentFrame];
-        this.drawCar(position, driver.driver_number);
-      }
-    });
-
-    this.currentFrame++;
-    this.animationFrameId = requestAnimationFrame(() => this.animate());
-  }
-
   private getScaleAndOffset() {
     if (this.trackTrajectory.length === 0) {
         return { scale: 1, offsetX: 0, offsetY: 0 };
@@ -413,20 +517,8 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     });
     this.ctx.stroke();
 
-    // Redraw cars at current frame position after drawing track
-    this.drawCurrentFrameCars();
-  }
-
-  private drawCurrentFrameCars(): void {
-    if (this.drivers.length === 0 || this.currentFrame < 0) return;
-
-    this.drivers.forEach(driver => {
-      const driverTrajectory = this.trajectories.get(driver.driver_number);
-      if (driverTrajectory && this.currentFrame < driverTrajectory.length) {
-        const position = driverTrajectory[this.currentFrame];
-        this.drawCar(position, driver.driver_number);
-      }
-    });
+    // Redraw cars at current time position after drawing track
+    this.updateCarsAtCurrentTime();
   }
 
   drawCar(position: any, driverNumber: number): void {
@@ -452,20 +544,19 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     const circleOffset = Math.max(5, Math.min(20, baseCircleOffset * this.zoom));
     const fontSize = Math.max(6, Math.min(16, baseFontSize * this.zoom));
 
-    // Calculate car rotation based on movement direction
+    // Calculate car rotation based on movement direction using time-based approach
     const driverTrajectory = this.trajectories.get(driverNumber);
     let rotation = 0;
     
-    if (driverTrajectory && this.currentFrame > 0 && this.currentFrame < driverTrajectory.length) {
-      const currentPos = driverTrajectory[this.currentFrame];
-      const prevPos = driverTrajectory[this.currentFrame - 1];
+    if (driverTrajectory && this.currentSimulationTime) {
+      // Find previous position to calculate direction
+      const currentTime = this.currentSimulationTime.getTime();
+      const prevTime = currentTime - 1000; // Look back 1 second
+      const prevPosition = this.findPositionAtTime(driverTrajectory, new Date(prevTime));
       
-      // Calculate the angle of movement
-      const deltaX = currentPos.x - prevPos.x;
-      const deltaY = currentPos.y - prevPos.y;
-      
-      if (deltaX !== 0 || deltaY !== 0) {
-        // Calculate angle in radians (Math.atan2 gives angle from -π to π)
+      if (prevPosition && (position.x !== prevPosition.x || position.y !== prevPosition.y)) {
+        const deltaX = position.x - prevPosition.x;
+        const deltaY = position.y - prevPosition.y;
         rotation = Math.atan2(deltaY, deltaX);
       }
     }
