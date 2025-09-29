@@ -33,6 +33,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   private trajectories = new Map<number, any[]>();
   private carImages = new Map<number, HTMLImageElement>();
   private trackTrajectory: any[] = []; // For drawing the track outline
+  private allLocationData: any[] = []; // Store all location data from the API call
 
   private animationFrameId: number | null = null;
   private currentFrame = 0;
@@ -52,7 +53,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
   // Configuration and timing
   private readonly MASS_QUERY_START_TIME = '2023-10-29T20:30:00+00:00';
-  private showAllDrivers = false; // Flag to control number of drivers
+  private showAllDrivers = true; // Flag to control number of drivers
   private singleDriverNumber = 1; // Driver to show when showAllDrivers is false
   
   // Time-based animation properties
@@ -161,25 +162,39 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
           return of([]);
         }
 
-        this.openf1ApiService.getDriverFullTrajectory(this.drivers[0].driver_number, this.MASS_QUERY_START_TIME)
-          .subscribe(data => {
-            this.trackTrajectory = data;
-            this.drawTrack();
-          });
-
-        const trajectoryObservables = this.drivers.map(driver =>
-          this.openf1ApiService.getDriverFullTrajectory(driver.driver_number, this.MASS_QUERY_START_TIME)
-        );
-
-        return forkJoin(trajectoryObservables);
+        // Use the new single API call to get ALL drivers' location data
+        return this.openf1ApiService.getAllDriversLocationData();
       })
-    ).subscribe(allTrajectories => {
-      allTrajectories.forEach((trajectory, index) => {
-        const driver = this.drivers[index];
-        // Sort trajectory by timestamp to ensure proper ordering
-        const sortedTrajectory = trajectory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        this.trajectories.set(driver.driver_number, sortedTrajectory);
+    ).subscribe(allLocationData => {
+      if (allLocationData.length === 0) {
+        return;
+      }
+
+      console.log(`📊 Processing ${allLocationData.length} location data points from first 5 minutes`);
+
+      // Store all location data for track drawing and simulation
+      this.allLocationData = allLocationData;
+
+      // Group location data by driver and filter for our drivers
+      this.drivers.forEach(driver => {
+        const driverLocations = allLocationData
+          .filter(loc => loc.driver_number === driver.driver_number)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        this.trajectories.set(driver.driver_number, driverLocations);
+        
+        console.log(`🏎️ Driver ${driver.driver_number} (${driver.name_acronym || driver.broadcast_name}): ${driverLocations.length} location points`);
       });
+
+      // Use the first available driver's trajectory for track outline
+      if (this.drivers.length > 0) {
+        const firstDriverTrajectory = this.trajectories.get(this.drivers[0].driver_number);
+        if (firstDriverTrajectory && firstDriverTrajectory.length > 0) {
+          this.trackTrajectory = firstDriverTrajectory;
+          console.log(`🏁 Using driver ${this.drivers[0].driver_number} trajectory for track outline (${firstDriverTrajectory.length} points)`);
+          this.drawTrack();
+        }
+      }
 
       const imageLoadPromises = this.drivers.map(driver => {
         return new Promise<void>(resolve => {
@@ -286,19 +301,38 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   }
 
   startAnimation(): void {
+    console.log('🚀 startAnimation() called, current state:', {
+      hasAnimationFrame: !!this.animationFrameId,
+      hasSessionStart: !!this.sessionStartTime,
+      currentTime: this.currentSimulationTime?.toISOString(),
+      raceStartTime: this.raceStartTime?.toISOString()
+    });
+
     if (this.animationFrameId || !this.sessionStartTime) {
       return;
     }
 
-    // Jump to race start time if detected and not already there
+    // Only jump to race start time if we're at the very beginning (session start)
+    // This prevents restarting when resuming from pause
     if (this.raceStartTime && this.currentSimulationTime) {
-      const timeDiff = Math.abs(this.currentSimulationTime.getTime() - this.raceStartTime.getTime());
-      // If we're more than 1 minute away from race start, jump to race start
-      if (timeDiff > 60000) {
-        this.currentSimulationTime = new Date(this.raceStartTime);
-        this.animationControlService.setCurrentTime(this.currentSimulationTime);
-        this.updateCarsAtCurrentTime();
-        console.log('Jumped to race start time:', this.currentSimulationTime);
+      const sessionStartDiff = Math.abs(this.currentSimulationTime.getTime() - this.sessionStartTime.getTime());
+      console.log('⏰ Time check:', {
+        sessionStartDiff: sessionStartDiff,
+        isAtSessionStart: sessionStartDiff <= 30000
+      });
+      
+      // Only jump to race start if we're at session start (within 30 seconds)
+      if (sessionStartDiff <= 30000) {
+        const timeDiff = Math.abs(this.currentSimulationTime.getTime() - this.raceStartTime.getTime());
+        // If we're more than 1 minute away from race start, jump to race start
+        if (timeDiff > 60000) {
+          this.currentSimulationTime = new Date(this.raceStartTime);
+          this.animationControlService.setCurrentTime(this.currentSimulationTime);
+          this.updateCarsAtCurrentTime();
+          console.log('🏁 Jumped to race start time:', this.currentSimulationTime);
+        }
+      } else {
+        console.log('▶️ Resuming from current time (not jumping to race start)');
       }
     }
 
@@ -308,12 +342,12 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   }
 
   pauseAnimation(): void {
-    this.isPaused = !this.isPaused;
-    if (!this.isPaused && !this.animationFrameId) {
-      this.lastUpdateTime = performance.now();
-      this.animate();
+    console.log('⏸️ pauseAnimation() called');
+    this.isPaused = true;
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
     }
-    // Don't update the service state here as it's already handled by the service
   }
 
   stopAnimation(): void {
@@ -326,6 +360,11 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.animationControlService.setCurrentTime(this.currentSimulationTime);
       this.updateCarsAtCurrentTime();
     }
+    
+    // Reset dynamic data loading by clearing API service segments
+    // This ensures a fresh start when restarting the simulation
+    this.clearDynamicDataAndReload();
+    
     this.drawTrack();
   }
 
@@ -383,11 +422,85 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     // Update the control service with current time
     this.animationControlService.setCurrentTime(this.currentSimulationTime);
 
+    // Check if we need to load more data dynamically
+    this.checkAndLoadMoreDataIfNeeded();
+
     // Draw the current frame
     this.drawTrack();
     this.updateCarsAtCurrentTime();
 
     this.animationFrameId = requestAnimationFrame(() => this.animate());
+  }
+
+  private checkAndLoadMoreDataIfNeeded(): void {
+    if (!this.currentSimulationTime) return;
+
+    // Use the API service to check and load more data
+    this.openf1ApiService.checkAndLoadMoreData(this.currentSimulationTime)
+      .subscribe(updatedData => {
+        if (updatedData.length > this.allLocationData.length) {
+          console.log(`🔄 Loaded additional data: ${updatedData.length - this.allLocationData.length} new points`);
+          console.log(`📊 Total simulation coverage: ${(updatedData.length / 1000).toFixed(1)}k data points`);
+          
+          // Update our stored data
+          this.allLocationData = updatedData;
+
+          // Update trajectories for each driver with new data
+          this.drivers.forEach(driver => {
+            const driverLocations = updatedData
+              .filter(loc => loc.driver_number === driver.driver_number)
+              .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            
+            this.trajectories.set(driver.driver_number, driverLocations);
+            
+            console.log(`🏎️ Updated driver ${driver.driver_number}: ${driverLocations.length} total points`);
+          });
+
+          // Update track trajectory if needed (use first driver's updated trajectory)
+          if (this.drivers.length > 0) {
+            const firstDriverTrajectory = this.trajectories.get(this.drivers[0].driver_number);
+            if (firstDriverTrajectory && firstDriverTrajectory.length > 0) {
+              this.trackTrajectory = firstDriverTrajectory;
+            }
+          }
+        }
+      });
+  }
+
+  private clearDynamicDataAndReload(): void {
+    // Clear the API service's loaded segments
+    this.openf1ApiService.clearLoadedSegments();
+    
+    // Reload the first chunk of data to reset trajectories
+    this.openf1ApiService.getAllDriversLocationData().subscribe(allLocationData => {
+      if (allLocationData.length === 0) {
+        return;
+      }
+
+      console.log(`🔄 Reloaded initial data: ${allLocationData.length} location points after restart`);
+
+      // Store all location data for track drawing and simulation
+      this.allLocationData = allLocationData;
+
+      // Update trajectories for each driver
+      this.drivers.forEach(driver => {
+        const driverLocations = allLocationData
+          .filter(loc => loc.driver_number === driver.driver_number)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        this.trajectories.set(driver.driver_number, driverLocations);
+        
+        console.log(`🏎️ Reset driver ${driver.driver_number}: ${driverLocations.length} location points`);
+      });
+
+      // Reset track trajectory
+      if (this.drivers.length > 0) {
+        const firstDriverTrajectory = this.trajectories.get(this.drivers[0].driver_number);
+        if (firstDriverTrajectory && firstDriverTrajectory.length > 0) {
+          this.trackTrajectory = firstDriverTrajectory;
+        }
+      }
+    });
   }
 
   private updateCarsAtCurrentTime(): void {

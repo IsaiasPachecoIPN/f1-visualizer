@@ -1,5 +1,13 @@
-<ul>
-  <li *ngFor="let comment of comments">
-    <strong>{{ comment.time }}</strong>: {{ comment.text }}
-  </li>
-</ul>
+<div class="comments-container">
+  <div *ngIf="(comments$ | async) as comments">
+    <div *ngIf="comments.length === 0" class="no-comments">
+      Race commentary will appear here during simulation...
+    </div>
+    
+    <div *ngFor="let comment of comments; trackBy: trackByComment" 
+         [class]="getCommentClass(comment)">
+      <div class="comment-time">{{ comment.timeString }}</div>
+      <p class="comment-text">{{ comment.text }}</p>
+    </div>
+  </div>
+</div>

@@ -57,10 +57,13 @@ export class ControlsComponent implements OnInit {
   }
 
   onStartPause(): void {
+    console.log('🎮 Start/Pause button pressed, current state:', this.animationControlService.getIsPlaying());
+    
     if (this.animationControlService.getIsPlaying()) {
+      console.log('⏸️ Pausing simulation');
       this.animationControlService.pause();
     } else {
-      // If not playing, start/resume (will jump to race start if at beginning)
+      console.log('▶️ Starting/Resuming simulation');
       this.animationControlService.start();
     }
   }

@@ -39,8 +39,7 @@ export class AnimationControlService {
   }
 
   pause() {
-    const currentlyPlaying = this.isPlayingSubject.value;
-    this.isPlayingSubject.next(!currentlyPlaying);
+    this.isPlayingSubject.next(false);
     this.pauseSubject.next();
   }
 
