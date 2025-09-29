@@ -58,6 +58,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   // Time-based animation properties
   private sessionStartTime: Date | null = null;
   private sessionEndTime: Date | null = null;
+  private raceStartTime: Date | null = null; // Actual race start time
   private currentSimulationTime: Date | null = null;
   private lastUpdateTime: number = 0;
   private speedMultiplier: number = 10;
@@ -91,6 +92,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.animationControlService.toggleShowAllDrivers$.subscribe(() => this.toggleShowAllDrivers()),
       this.animationControlService.speedChanged$.subscribe((speed) => this.onSpeedChanged(speed)),
       this.animationControlService.timeSeek$.subscribe((time) => this.seekToTime(time)),
+      this.animationControlService.jumpToRaceStart$.subscribe(() => this.jumpToRaceStart()),
       this.animationControlService.speedMultiplier$.subscribe((speed) => {
         this.speedMultiplier = speed;
       }),
@@ -101,6 +103,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         this.trackTrajectory = [];
         this.sessionStartTime = null;
         this.sessionEndTime = null;
+        this.raceStartTime = null;
         this.currentSimulationTime = null;
         this.stopAnimation();
         this.loadAllDriverData();
@@ -197,6 +200,10 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
       Promise.all(imageLoadPromises).then(() => {
         console.log('All car images loaded');
+        
+        // Detect race start time
+        this.detectRaceStartTime();
+        
         // Update cars at the initial time
         this.updateCarsAtCurrentTime();
         // Make sure the time display shows the start time
@@ -207,10 +214,94 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  private detectRaceStartTime(): void {
+    if (this.trajectories.size === 0) return;
+
+    // Get the first driver's trajectory to analyze
+    const firstDriverTrajectory = Array.from(this.trajectories.values())[0];
+    if (!firstDriverTrajectory || firstDriverTrajectory.length < 10) return;
+
+    // Look for significant movement indicating race start
+    let raceStartDetected = false;
+    const minimumMovement = 100; // meters - threshold for significant movement
+    const consistentPoints = 3; // Number of consecutive points with good movement
+
+    for (let i = 5; i < firstDriverTrajectory.length - consistentPoints; i++) {
+      let consistentMovement = 0;
+      
+      // Check for consecutive points with significant movement
+      for (let j = 0; j < consistentPoints; j++) {
+        const currentPoint = firstDriverTrajectory[i + j];
+        const prevPoint = firstDriverTrajectory[i + j - 1];
+        
+        if (currentPoint && prevPoint) {
+          // Calculate distance moved between points
+          const deltaX = currentPoint.x - prevPoint.x;
+          const deltaY = currentPoint.y - prevPoint.y;
+          const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+          
+          // Check if speed is available and above threshold, or distance moved is significant
+          const hasSpeed = currentPoint.speed && currentPoint.speed > 50; // 50 km/h
+          const hasMovement = distance > minimumMovement;
+          
+          if (hasSpeed || hasMovement) {
+            consistentMovement++;
+          }
+        }
+      }
+
+      // If we found consistent racing activity, this might be race start
+      if (consistentMovement >= consistentPoints) {
+        this.raceStartTime = new Date(firstDriverTrajectory[i].date);
+        raceStartDetected = true;
+        console.log('Race start detected at:', this.raceStartTime);
+        break;
+      }
+    }
+
+    // Fallback: if no clear race start detected, look for first significant activity
+    if (!raceStartDetected) {
+      // Find first point where there's any meaningful movement
+      for (let i = 1; i < Math.min(firstDriverTrajectory.length, 100); i++) {
+        const currentPoint = firstDriverTrajectory[i];
+        const prevPoint = firstDriverTrajectory[i - 1];
+        
+        const deltaX = currentPoint.x - prevPoint.x;
+        const deltaY = currentPoint.y - prevPoint.y;
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        
+        if (distance > 50) { // Any movement > 50 meters
+          this.raceStartTime = new Date(currentPoint.date);
+          console.log('First movement detected at:', this.raceStartTime);
+          break;
+        }
+      }
+    }
+
+    // Final fallback: use session start + 5 minutes
+    if (!this.raceStartTime && this.sessionStartTime) {
+      this.raceStartTime = new Date(this.sessionStartTime.getTime() + (5 * 60 * 1000));
+      console.log('Race start estimated at:', this.raceStartTime);
+    }
+  }
+
   startAnimation(): void {
     if (this.animationFrameId || !this.sessionStartTime) {
       return;
     }
+
+    // Jump to race start time if detected and not already there
+    if (this.raceStartTime && this.currentSimulationTime) {
+      const timeDiff = Math.abs(this.currentSimulationTime.getTime() - this.raceStartTime.getTime());
+      // If we're more than 1 minute away from race start, jump to race start
+      if (timeDiff > 60000) {
+        this.currentSimulationTime = new Date(this.raceStartTime);
+        this.animationControlService.setCurrentTime(this.currentSimulationTime);
+        this.updateCarsAtCurrentTime();
+        console.log('Jumped to race start time:', this.currentSimulationTime);
+      }
+    }
+
     this.isPaused = false;
     this.lastUpdateTime = performance.now();
     this.animate();
@@ -222,6 +313,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.lastUpdateTime = performance.now();
       this.animate();
     }
+    // Don't update the service state here as it's already handled by the service
   }
 
   stopAnimation(): void {
@@ -245,6 +337,17 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.currentSimulationTime = new Date(targetTime);
     this.animationControlService.setCurrentTime(this.currentSimulationTime);
     this.updateCarsAtCurrentTime();
+  }
+
+  jumpToRaceStart(): void {
+    if (this.raceStartTime) {
+      this.currentSimulationTime = new Date(this.raceStartTime);
+      this.animationControlService.setCurrentTime(this.currentSimulationTime);
+      this.updateCarsAtCurrentTime();
+      console.log('Jumped to race start time:', this.currentSimulationTime);
+    } else {
+      console.log('Race start time not detected yet');
+    }
   }
 
   private animate(): void {

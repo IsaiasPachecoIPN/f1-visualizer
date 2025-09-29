@@ -22,6 +22,8 @@ export class ControlsComponent implements OnInit {
   sessions: any[] = [];
   selectedSession: number = 9181;
   speedMultiplier$: Observable<number>;
+  isPlaying$: Observable<boolean>;
+  
   speedOptions = [
     { value: 0.25, label: '0.25x' },
     { value: 0.5, label: '0.5x' },
@@ -38,6 +40,7 @@ export class ControlsComponent implements OnInit {
     private openf1ApiService: Openf1ApiService
   ) {
     this.speedMultiplier$ = this.animationControlService.speedMultiplier$;
+    this.isPlaying$ = this.animationControlService.isPlaying$;
   }
 
   ngOnInit(): void {
@@ -53,15 +56,16 @@ export class ControlsComponent implements OnInit {
     this.animationControlService.changeSession(this.selectedSession);
   }
 
-  onStart(): void {
-    this.animationControlService.start();
+  onStartPause(): void {
+    if (this.animationControlService.getIsPlaying()) {
+      this.animationControlService.pause();
+    } else {
+      // If not playing, start/resume (will jump to race start if at beginning)
+      this.animationControlService.start();
+    }
   }
 
-  onPause(): void {
-    this.animationControlService.pause();
-  }
-
-  onStop(): void {
+  onRestart(): void {
     this.animationControlService.stop();
   }
 

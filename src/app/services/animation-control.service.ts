@@ -12,11 +12,14 @@ export class AnimationControlService {
   private sessionChangedSubject = new Subject<number>();
   private speedChangedSubject = new Subject<number>();
   private timeSeekSubject = new Subject<Date>();
+  private jumpToRaceStartSubject = new Subject<void>();
 
   // Speed multiplier: 1 = real time, 2 = 2x speed, 0.5 = half speed, etc.
   private speedMultiplierSubject = new BehaviorSubject<number>(10);
   // Current simulation time
   private currentTimeSubject = new BehaviorSubject<Date | null>(null);
+  // Playing state
+  private isPlayingSubject = new BehaviorSubject<boolean>(false);
 
   start$ = this.startSubject.asObservable();
   pause$ = this.pauseSubject.asObservable();
@@ -25,18 +28,24 @@ export class AnimationControlService {
   sessionChanged$ = this.sessionChangedSubject.asObservable();
   speedChanged$ = this.speedChangedSubject.asObservable();
   timeSeek$ = this.timeSeekSubject.asObservable();
+  jumpToRaceStart$ = this.jumpToRaceStartSubject.asObservable();
   speedMultiplier$ = this.speedMultiplierSubject.asObservable();
   currentTime$ = this.currentTimeSubject.asObservable();
+  isPlaying$ = this.isPlayingSubject.asObservable();
 
   start() {
+    this.isPlayingSubject.next(true);
     this.startSubject.next();
   }
 
   pause() {
+    const currentlyPlaying = this.isPlayingSubject.value;
+    this.isPlayingSubject.next(!currentlyPlaying);
     this.pauseSubject.next();
   }
 
   stop() {
+    this.isPlayingSubject.next(false);
     this.stopSubject.next();
   }
 
@@ -67,5 +76,13 @@ export class AnimationControlService {
 
   seekToTime(time: Date) {
     this.timeSeekSubject.next(time);
+  }
+
+  jumpToRaceStart() {
+    this.jumpToRaceStartSubject.next();
+  }
+
+  getIsPlaying(): boolean {
+    return this.isPlayingSubject.value;
   }
 }

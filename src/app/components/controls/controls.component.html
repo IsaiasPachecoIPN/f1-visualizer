@@ -1,11 +1,38 @@
 <div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '16px' , padding: '10px'}">
-  <div [ngStyle]="{ display: 'flex', gap: '8px' }">
+  <div [ngStyle]="{ display: 'flex', gap: '8px', 'align-items': 'center' }">
+    <!-- Start/Pause Button -->
     <button 
         z-button 
-        (click)="onStart()"
-        >Start</button>
-    <button z-button (click)="onPause()">Pause</button>
-    <button z-button (click)="onStop()">Stop</button>
+        (click)="onStartPause()"
+        [title]="(isPlaying$ | async) ? 'Pause simulation' : 'Start simulation (jumps to race beginning)'"
+        [ngStyle]="{ 
+          display: 'flex', 
+          'align-items': 'center', 
+          gap: '6px',
+          'min-width': '100px',
+          'justify-content': 'center'
+        }">
+        <span [ngStyle]="{ 'font-size': '14px' }" *ngIf="!(isPlaying$ | async)">▶</span>
+        <span [ngStyle]="{ 'font-size': '14px' }" *ngIf="isPlaying$ | async">⏸</span>
+        <span>{{ (isPlaying$ | async) ? 'Pause' : 'Start' }}</span>
+    </button>
+    
+    <!-- Restart Button -->
+    <button 
+        z-button 
+        variant="outline"
+        (click)="onRestart()"
+        title="Restart simulation from beginning"
+        [ngStyle]="{ 
+          display: 'flex', 
+          'align-items': 'center', 
+          gap: '6px',
+          'min-width': '100px',
+          'justify-content': 'center'
+        }">
+        <span [ngStyle]="{ 'font-size': '14px' }">↻</span>
+        <span>Restart</span>
+    </button>
   </div>
   
   <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
