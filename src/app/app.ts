@@ -7,10 +7,11 @@ import { ControlsComponent } from './components/controls/controls.component';
 import { CommentsComponent } from './components/comments/comments.component';
 import { ZardBadgeComponent } from '@shared/components/badge/badge.component';
 import { CommonModule } from '@angular/common';
+import { LoadingComponent } from './components/loading/loading.component';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, AnimationComponent, RaceInfoComponent, DriversComponent, ControlsComponent, CommentsComponent, ZardBadgeComponent, CommonModule],
+  imports: [RouterOutlet, AnimationComponent, RaceInfoComponent, DriversComponent, ControlsComponent, CommentsComponent, ZardBadgeComponent, CommonModule, LoadingComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

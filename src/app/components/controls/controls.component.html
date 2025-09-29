@@ -10,4 +10,12 @@
   <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
     <z-switch (checkChange)="onToggleShowAllDrivers()">Show All Drivers</z-switch>
   </div>
+  <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
+    <label for="session-select">Session:</label>
+    <select id="session-select" [ngModel]="selectedSession" (change)="onSessionChange($event)">
+      <option *ngFor="let session of sessions" [value]="session.session_key">
+        {{session.circuit_short_name}} - {{session.session_name}}
+      </option>
+    </select>
+  </div>
 </div>

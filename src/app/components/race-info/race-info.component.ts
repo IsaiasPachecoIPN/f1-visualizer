@@ -10,12 +10,10 @@ import { CommonModule } from '@angular/common';
 })
 export class RaceInfoComponent implements OnInit {
   sessionInfo: any;
-  private readonly SESSION_KEY = 9181; // Mexico City GP 2023
-
   constructor(private openf1ApiService: Openf1ApiService) {}
 
   ngOnInit(): void {
-    this.openf1ApiService.getSessionInfo(this.SESSION_KEY).subscribe(data => {
+    this.openf1ApiService.getSessionInfo().subscribe(data => {
       this.sessionInfo = data[0];
     });
   }

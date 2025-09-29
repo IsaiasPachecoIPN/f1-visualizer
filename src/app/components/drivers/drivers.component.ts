@@ -11,12 +11,10 @@ import { CarComponent } from '../car/car.component';
 })
 export class DriversComponent implements OnInit {
   drivers: any[] = [];
-  private readonly SESSION_KEY = 9181; // Mexico City GP 2023
-
   constructor(private openf1ApiService: Openf1ApiService) {}
 
   ngOnInit(): void {
-    this.openf1ApiService.getDrivers(this.SESSION_KEY).subscribe(data => {
+    this.openf1ApiService.getDrivers().subscribe(data => {
       this.drivers = data;
     });
   }
