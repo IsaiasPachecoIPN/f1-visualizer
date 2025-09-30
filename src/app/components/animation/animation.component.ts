@@ -52,7 +52,6 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   private maxZoom = 5;
 
   // Configuration and timing
-  private readonly MASS_QUERY_START_TIME = '2023-10-29T20:30:00+00:00';
   private showAllDrivers = true; // Flag to control number of drivers
   private singleDriverNumber = 1; // Driver to show when showAllDrivers is false
   

@@ -70,11 +70,11 @@ export class TimeDisplayComponent implements OnInit {
       return '--:--:--';
     }
     
-    // Format as HH:MM:SS in 24-hour format
-    const hours = time.getHours().toString().padStart(2, '0');
-    const minutes = time.getMinutes().toString().padStart(2, '0');
-    const seconds = time.getSeconds().toString().padStart(2, '0');
+    // Format as HH:MM:SS in UTC to match session time zone (same as API date_start)
+    const hours = time.getUTCHours().toString().padStart(2, '0');
+    const minutes = time.getUTCMinutes().toString().padStart(2, '0');
+    const seconds = time.getUTCSeconds().toString().padStart(2, '0');
     
-    return `${hours}:${minutes}:${seconds}`;
+    return `${hours}:${minutes}:${seconds} UTC`;
   }
 }
