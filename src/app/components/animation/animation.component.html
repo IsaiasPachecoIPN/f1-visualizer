@@ -28,6 +28,14 @@
   <button type="button" (click)="resetZoom()" title="Reset Zoom">⌂</button>
   </div>
   <canvas #animationCanvas></canvas>
+  
+  <!-- Car Tooltip -->
+  <app-car-tooltip 
+    [visible]="showTooltip" 
+    [x]="tooltipX" 
+    [y]="tooltipY" 
+    [driverData]="hoveredDriverData">
+  </app-car-tooltip>
 </div>
 
 <style>

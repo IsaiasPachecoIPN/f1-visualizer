@@ -2,9 +2,7 @@ import { FormsModule } from '@angular/forms';
 import { Component, OnInit } from '@angular/core';
 import { AnimationControlService } from '../../services/animation-control.service';
 import { Openf1ApiService } from '../../services/openf1-api.service';
-import { ZardButtonComponent } from '@shared/components/button/button.component';
 import { CommonModule } from '@angular/common';
-import { ZardSwitchComponent } from '@shared/components/switch/switch.component';
 import { Observable } from 'rxjs';
 
 @Component({
@@ -14,8 +12,6 @@ import { Observable } from 'rxjs';
   imports: [
     CommonModule,
     FormsModule,
-    ZardButtonComponent,
-    ZardSwitchComponent,
   ],
 })
 export class ControlsComponent implements OnInit {

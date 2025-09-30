@@ -17,6 +17,17 @@ export interface DriverPositionData {
   driverAcronym?: string;
   teamColor?: string;
   teamName?: string;
+  carData?: DriverCarData;
+}
+
+export interface DriverCarData {
+  brake: number;
+  drs: number;
+  n_gear: number;
+  rpm: number;
+  speed: number;
+  throttle: number;
+  date: string;
 }
 
 export interface RacePositionsTable {
@@ -88,6 +99,16 @@ export class PositionService {
         this.openf1ApiService.getDrivers().toPromise()
       ]);
 
+      // Also load car data for enhanced position information
+      this.openf1ApiService.getAllDriversCarData().subscribe({
+        next: (carData) => {
+          console.log(`🚗 Loaded ${carData.length} car data records for enhanced position tracking`);
+        },
+        error: (error) => {
+          console.warn('⚠️ Could not load car data:', error);
+        }
+      });
+
       this.positionDataCache = (positionData || [])
         .map(pos => ({
           ...pos,
@@ -134,6 +155,8 @@ export class PositionService {
   private updateCurrentPositions(currentTime: Date): void {
     if (this.positionDataCache.length === 0) return;
 
+    console.log(`🏁 updateCurrentPositions called for time: ${currentTime.toISOString()}`);
+    
     const currentTimestamp = currentTime.getTime();
     const timeWindow = 30000; // 30 seconds window
 
@@ -185,12 +208,28 @@ export class PositionService {
   private enrichPositionData(position: DriverPositionData): DriverPositionData {
     const driver = this.driversCache.find(d => d.driver_number === position.driverNumber);
     
+    // Get car data for this driver at this time if available
+    const carData = this.openf1ApiService.getDriverCarDataAtTime(
+      position.driverNumber, 
+      new Date(position.date), 
+      5000 // 5 second window
+    );
+    
     return {
       ...position,
       driverName: driver ? `${driver.first_name} ${driver.last_name}` : `Driver ${position.driverNumber}`,
       driverAcronym: driver?.name_acronym || driver?.broadcast_name || `#${position.driverNumber}`,
       teamColor: driver?.car_color || '#888888',
-      teamName: driver?.team_name || 'Unknown'
+      teamName: driver?.team_name || 'Unknown',
+      carData: carData ? {
+        brake: carData.brake || 0,
+        drs: carData.drs || 0,
+        n_gear: carData.n_gear || 0,
+        rpm: carData.rpm || 0,
+        speed: carData.speed || 0,
+        throttle: carData.throttle || 0,
+        date: carData.date
+      } : undefined
     };
   }
 

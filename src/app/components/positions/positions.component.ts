@@ -45,6 +45,10 @@ export interface DriverPosition {
               <div class="driver-name">{{ driver.driverAcronym }}</div>
               <div class="team-name">{{ driver.teamName }}</div>
             </div>
+            <div class="car-data" *ngIf="driver.carData">
+              <div class="speed">{{ driver.carData.speed }} km/h</div>
+              <div class="gear">G{{ getGearDisplay(driver.carData.n_gear) }}</div>
+            </div>
           </div>
           
           <div class="position-indicator" *ngIf="getPositionChange(driver) as change">
@@ -210,6 +214,29 @@ export interface DriverPosition {
       text-transform: uppercase;
     }
 
+    .car-data {
+      margin-left: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      min-width: 80px;
+    }
+
+    .car-data .speed {
+      font-size: 12px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+
+    .car-data .gear {
+      font-size: 10px;
+      color: #FFC107;
+      background: rgba(255, 193, 7, 0.2);
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+
     .no-positions {
       text-align: center;
       color: #999;
@@ -348,6 +375,11 @@ export class PositionsComponent implements OnInit, OnDestroy {
     const absChange = Math.abs(change);
     const direction = change > 0 ? 'up' : 'down';
     return `Moved ${direction} ${absChange} position${absChange > 1 ? 's' : ''}`;
+  }
+
+  getGearDisplay(gear: number): string {
+    if (gear === 0) return 'N';
+    return gear.toString();
   }
 
   formatTime(date: Date): string {

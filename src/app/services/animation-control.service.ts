@@ -13,6 +13,7 @@ export class AnimationControlService {
   private speedChangedSubject = new Subject<number>();
   private timeSeekSubject = new Subject<Date>();
   private jumpToRaceStartSubject = new Subject<void>();
+  private raceStartDetectedSubject = new Subject<{ raceStartTime: Date, isFormationLap: boolean }>();
 
   // Speed multiplier: 1 = real time, 2 = 2x speed, 0.5 = half speed, etc.
   private speedMultiplierSubject = new BehaviorSubject<number>(10);
@@ -20,6 +21,9 @@ export class AnimationControlService {
   private currentTimeSubject = new BehaviorSubject<Date | null>(null);
   // Playing state
   private isPlayingSubject = new BehaviorSubject<boolean>(false);
+  // Race start information
+  private raceStartTimeSubject = new BehaviorSubject<Date | null>(null);
+  private isFormationLapSubject = new BehaviorSubject<boolean>(false);
 
   start$ = this.startSubject.asObservable();
   pause$ = this.pauseSubject.asObservable();
@@ -29,9 +33,12 @@ export class AnimationControlService {
   speedChanged$ = this.speedChangedSubject.asObservable();
   timeSeek$ = this.timeSeekSubject.asObservable();
   jumpToRaceStart$ = this.jumpToRaceStartSubject.asObservable();
+  raceStartDetected$ = this.raceStartDetectedSubject.asObservable();
   speedMultiplier$ = this.speedMultiplierSubject.asObservable();
   currentTime$ = this.currentTimeSubject.asObservable();
   isPlaying$ = this.isPlayingSubject.asObservable();
+  raceStartTime$ = this.raceStartTimeSubject.asObservable();
+  isFormationLap$ = this.isFormationLapSubject.asObservable();
 
   start() {
     this.isPlayingSubject.next(true);
@@ -83,5 +90,19 @@ export class AnimationControlService {
 
   getIsPlaying(): boolean {
     return this.isPlayingSubject.value;
+  }
+
+  setRaceStartInfo(raceStartTime: Date, isFormationLap: boolean) {
+    this.raceStartTimeSubject.next(raceStartTime);
+    this.isFormationLapSubject.next(isFormationLap);
+    this.raceStartDetectedSubject.next({ raceStartTime, isFormationLap });
+  }
+
+  getRaceStartTime(): Date | null {
+    return this.raceStartTimeSubject.value;
+  }
+
+  getIsFormationLap(): boolean {
+    return this.isFormationLapSubject.value;
   }
 }

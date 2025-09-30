@@ -1,7 +1,10 @@
-import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, HostListener } from '@angular/core';
+import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, HostListener, ChangeDetectorRef, NgZone } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { Openf1ApiService } from '../../services/openf1-api.service';
 import { AnimationControlService } from '../../services/animation-control.service';
+import { PositionService } from '../../services/position.service';
+import { RaceCommentaryService } from '../../services/race-commentary.service';
+import { CarTooltipComponent } from '../car-tooltip/car-tooltip.component';
 import { Subscription, forkJoin, of, Observable, merge } from 'rxjs';
 import { map, switchMap, shareReplay } from 'rxjs/operators';
 
@@ -24,7 +27,7 @@ const CAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="51
 @Component({
   selector: 'app-animation',
   standalone: true,
-  imports: [CommonModule, DatePipe],
+  imports: [CommonModule, DatePipe, CarTooltipComponent],
   templateUrl: './animation.component.html',
 })
 export class AnimationComponent implements AfterViewInit, OnDestroy {
@@ -73,9 +76,33 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   // Speed options reused from controls
   speedOptions = [0.25,0.5,1,2,5,10,20,50];
 
+  // Tooltip properties
+  showTooltip = false;
+  tooltipX = 0;
+  tooltipY = 0;
+  hoveredDriverData: any = null;
+  private carPositions = new Map<number, { 
+    x: number, 
+    y: number, 
+    size: number,
+    circleX: number,
+    circleY: number,
+    circleRadius: number,
+    detectionRadius: number
+  }>(); // Track car positions for hover detection & debug
+  private tooltipLockedDriver: number | null = null; // When set, tooltip stays visible
+  private showHoverDebug = true; // Toggle with 'h'
+
+  // Race sequence tracking
+  private raceSequenceStarted = false;
+
   constructor(
     private openf1ApiService: Openf1ApiService,
-    public animationControlService: AnimationControlService
+    public animationControlService: AnimationControlService,
+    private positionService: PositionService,
+    private raceCommentaryService: RaceCommentaryService,
+    private cdr: ChangeDetectorRef,
+    private ngZone: NgZone
   ) {
     // Initialize speed multiplier from the service
     this.speedMultiplier = this.animationControlService.getSpeedMultiplier();
@@ -93,8 +120,23 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   // Template helper methods
   getSpeedMultiplier(): number { return this.animationControlService.getSpeedMultiplier(); }
   getIsPlaying(): boolean { return this.animationControlService.getIsPlaying(); }
-  playPause(): void { this.getIsPlaying() ? this.animationControlService.pause() : this.animationControlService.start(); }
-  restart(): void { this.animationControlService.stop(); }
+  playPause(): void { 
+    if (this.getIsPlaying()) {
+      this.animationControlService.pause();
+    } else {
+      this.animationControlService.start();
+      // Only trigger race start sequence on the first start
+      if (!this.raceSequenceStarted) {
+        this.startRaceSequence();
+        this.raceSequenceStarted = true;
+      }
+    }
+  }
+  restart(): void { 
+    this.animationControlService.stop(); 
+    // Reset race sequence flag so it can be triggered again on next start
+    this.raceSequenceStarted = false;
+  }
   increaseSpeed(): void {
     const current = this.animationControlService.getSpeedMultiplier();
     const idx = this.speedOptions.findIndex(s => s === current);
@@ -132,6 +174,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.animationControlService.speedChanged$.subscribe((speed) => this.onSpeedChanged(speed)),
       this.animationControlService.timeSeek$.subscribe((time) => this.seekToTime(time)),
       this.animationControlService.jumpToRaceStart$.subscribe(() => this.jumpToRaceStart()),
+      this.animationControlService.raceStartDetected$.subscribe((raceInfo) => this.handleRaceStartDetected(raceInfo)),
       this.animationControlService.speedMultiplier$.subscribe((speed) => {
         this.speedMultiplier = speed;
       }),
@@ -211,11 +254,21 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
               this.drawTrack();
             }
             // Then continue with normal all-driver initial data load (first chunk only)
-            return this.openf1ApiService.getAllDriversLocationData();
+            return this.openf1ApiService.getAllDriversLocationData().pipe(
+              switchMap(locationData => {
+                // Also load car data
+                return this.openf1ApiService.getAllDriversCarData().pipe(
+                  map(carData => ({ locationData, carData }))
+                );
+              })
+            );
           })
         );
       })
-    ).subscribe(allLocationData => {
+    ).subscribe((result: any) => {
+      const allLocationData = result.locationData || result;
+      const allCarData = result.carData || [];
+      
       if (allLocationData.length === 0) {
         return;
       }
@@ -224,12 +277,14 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
       // Store all location data for track drawing and simulation
       this.allLocationData = allLocationData;
+      
+      console.log(`🚗 Loaded ${allCarData.length} car data points for enhanced visualization`);
 
       // Group location data by driver and filter for our drivers
       this.drivers.forEach(driver => {
         const driverLocations = allLocationData
-          .filter(loc => loc.driver_number === driver.driver_number)
-          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          .filter((loc: any) => loc.driver_number === driver.driver_number)
+          .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
         this.trajectories.set(driver.driver_number, driverLocations);
         
@@ -259,7 +314,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         console.log('All car images loaded');
         
         // Detect race start time
-        this.detectRaceStartTime();
+        this.detectRaceStart();
         
         // Update cars at the initial time
         this.updateCarsAtCurrentTime();
@@ -354,29 +409,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    // Only jump to race start time if we're at the very beginning (session start)
-    // This prevents restarting when resuming from pause
-    if (this.raceStartTime && this.currentSimulationTime) {
-      const sessionStartDiff = Math.abs(this.currentSimulationTime.getTime() - this.sessionStartTime.getTime());
-      console.log('⏰ Time check:', {
-        sessionStartDiff: sessionStartDiff,
-        isAtSessionStart: sessionStartDiff <= 30000
-      });
-      
-      // Only jump to race start if we're at session start (within 30 seconds)
-      if (sessionStartDiff <= 30000) {
-        const timeDiff = Math.abs(this.currentSimulationTime.getTime() - this.raceStartTime.getTime());
-        // If we're more than 1 minute away from race start, jump to race start
-        if (timeDiff > 60000) {
-          this.currentSimulationTime = new Date(this.raceStartTime);
-          this.animationControlService.setCurrentTime(this.currentSimulationTime);
-          this.updateCarsAtCurrentTime();
-          console.log('🏁 Jumped to race start time:', this.currentSimulationTime);
-        }
-      } else {
-        console.log('▶️ Resuming from current time (not jumping to race start)');
-      }
-    }
+    // Start animation from current time - don't auto-jump to race start
+    // Let the formation lap play naturally from the beginning
+    console.log('▶️ Starting animation from current time:', this.currentSimulationTime?.toISOString());
 
     this.isPaused = false;
     this.lastUpdateTime = performance.now();
@@ -390,6 +425,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
+    
+    // Redraw the current state so tooltips continue to work while paused
+    this.drawTrack();
   }
 
   stopAnimation(): void {
@@ -402,6 +440,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.animationControlService.setCurrentTime(this.currentSimulationTime);
       this.updateCarsAtCurrentTime();
     }
+    
+    // Reset race sequence flag so it can be triggered again on next start
+    this.raceSequenceStarted = false;
     
     // Reset dynamic data loading by clearing API service segments
     // This ensures a fresh start when restarting the simulation
@@ -501,6 +542,14 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
           // Do NOT update trackTrajectory after it's locked
         }
       });
+
+    // Also check and load car data
+    this.openf1ApiService.checkAndLoadMoreCarData(this.currentSimulationTime)
+      .subscribe(updatedCarData => {
+        if (updatedCarData.length > 0) {
+          console.log(`🚗 Car data updated: ${updatedCarData.length} total car data points available`);
+        }
+      });
   }
 
   private clearDynamicDataAndReload(): void {
@@ -545,6 +594,19 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         }
       }
     });
+
+    // If tooltip is locked, keep it anchored near the driver's number circle
+    if (this.tooltipLockedDriver !== null && this.showTooltip) {
+      const lockPos = this.carPositions.get(this.tooltipLockedDriver);
+      if (lockPos) {
+        const canvasRect = this.canvas.nativeElement.getBoundingClientRect();
+        // Position tooltip slightly to the right and above the circle
+        const screenX = canvasRect.left + lockPos.circleX + 15; // 15px horizontal offset
+        const screenY = canvasRect.top + lockPos.circleY - 20;  // 20px above the circle
+        this.tooltipX = Math.min(screenX, window.innerWidth - 240);
+        this.tooltipY = Math.max(screenY, 10);
+      }
+    }
   }
 
   private findPositionAtTime(trajectory: any[], targetTime: Date): any | null {
@@ -628,6 +690,10 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
     // Mouse move for pan
     canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
       if (this.isDragging) {
         const deltaX = e.clientX - this.lastMouseX;
         const deltaY = e.clientY - this.lastMouseY;
@@ -639,6 +705,34 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         this.lastMouseY = e.clientY;
         
         this.drawTrack();
+      } else {
+        // Check for circle-only hover (reduced event spam)
+        this.handleCarHover(mouseX, mouseY, e.clientX, e.clientY);
+      }
+    });
+
+    // Click to lock/show tooltip only when clicking driver number circle
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const clickedDriver = this.findDriverHitAt(mouseX, mouseY);
+      if (clickedDriver !== null) {
+        // Toggle lock if same driver clicked while locked
+        if (this.tooltipLockedDriver === clickedDriver) {
+          this.tooltipLockedDriver = null;
+          this.hideTooltip(true); // force hide
+          return;
+        }
+        // Lock to new driver and show
+        this.tooltipLockedDriver = clickedDriver;
+        this.showCarTooltip(clickedDriver, e.clientX, e.clientY, true);
+      } else {
+        // Click outside unlocks and hides
+        if (this.tooltipLockedDriver !== null) {
+          this.tooltipLockedDriver = null;
+          this.hideTooltip(true);
+        }
       }
     });
 
@@ -648,10 +742,11 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       canvas.style.cursor = 'grab';
     });
 
-    // Mouse leave to stop dragging
+    // Mouse leave to stop dragging and hide tooltip
     canvas.addEventListener('mouseleave', () => {
       this.isDragging = false;
       canvas.style.cursor = 'default';
+      this.hideTooltip();
     });
 
     // Set initial cursor
@@ -790,6 +885,20 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     const circleOffset = Math.max(5, Math.min(20, baseCircleOffset * this.zoom));
     const fontSize = Math.max(6, Math.min(16, baseFontSize * this.zoom));
 
+    // Store car position for hover detection (including both car and driver number circle)
+    const circleX = x + circleOffset;
+    const circleY = y - circleOffset;
+    const detectionRadius = Math.max(circleRadius + 4, 14); // mirror logic in findDriverCircleAt
+    this.carPositions.set(driverNumber, { 
+      x, 
+      y, 
+      size: carSize,
+      circleX,
+      circleY,
+      circleRadius: circleRadius,
+      detectionRadius
+    });
+
     // Calculate car rotation based on movement direction using time-based approach
     const driverTrajectory = this.trajectories.get(driverNumber);
     let rotation = 0;
@@ -823,7 +932,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
     // Draw a colored circle for the team instead of the team SVG with scaled size
     this.ctx.beginPath();
-    this.ctx.arc(x + circleOffset, y - circleOffset, circleRadius, 0, 2 * Math.PI);
+  this.ctx.arc(circleX, circleY, circleRadius, 0, 2 * Math.PI);
     this.ctx.fillStyle = teamColor;
     this.ctx.fill();
     this.ctx.strokeStyle = 'white';
@@ -835,9 +944,200 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.ctx.font = `bold ${fontSize}px Arial`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText(String(driverNumber), x + circleOffset, y - circleOffset);
+    this.ctx.fillText(String(driverNumber), circleX, circleY);
+
+    // // Debug hover visualization
+    // if (this.showHoverDebug) {
+    //   // Detection radius circle
+    //   this.ctx.beginPath();
+    //   this.ctx.strokeStyle = 'rgba(255, 255, 0, 0.6)';
+    //   this.ctx.lineWidth = 1;
+    //   this.ctx.setLineDash([4, 4]);
+    //   this.ctx.arc(circleX, circleY, detectionRadius, 0, 2 * Math.PI);
+    //   this.ctx.stroke();
+    //   this.ctx.setLineDash([]);
+
+    //   // Car body approximate hover (legacy) for reference
+    //   this.ctx.beginPath();
+    //   this.ctx.strokeStyle = 'rgba(0, 255, 255, 0.35)';
+    //   this.ctx.arc(x, y, carSize / 2 + 10, 0, 2 * Math.PI);
+    //   this.ctx.stroke();
+    // }
 
     // Reset text baseline for other text
     this.ctx.textBaseline = 'alphabetic';
+  }
+
+  /**
+   * Handle car hover detection
+   */
+  private handleCarHover(canvasX: number, canvasY: number, clientX: number, clientY: number): void {
+    // If locked, ignore hover except for updating position when hovering same circle
+    if (this.tooltipLockedDriver !== null) {
+      const lockedPos = this.carPositions.get(this.tooltipLockedDriver);
+      if (lockedPos) {
+        // Keep tooltip static when locked (could enhance to follow circle)
+      }
+      return;
+    }
+  const hoveredDriver = this.findDriverHitAt(canvasX, canvasY);
+    if (hoveredDriver !== null) {
+      this.showCarTooltip(hoveredDriver, clientX, clientY, false);
+    } else if (this.showTooltip) {
+      this.hideTooltip();
+    }
+  }
+
+  /**
+   * Find which driver's number circle (if any) is at the given canvas coordinates
+   */
+  private findDriverHitAt(canvasX: number, canvasY: number): number | null {
+    let bestDriver: number | null = null;
+    let bestMetric = Number.POSITIVE_INFINITY;
+    for (const [driverNumber, carPos] of this.carPositions) {
+      // Circle (number) hit
+      const dxC = canvasX - carPos.circleX;
+      const dyC = canvasY - carPos.circleY;
+      const circleDistance = Math.sqrt(dxC * dxC + dyC * dyC);
+      const circleHit = circleDistance <= carPos.detectionRadius;
+
+      // Car body approximate hit
+      const dxB = canvasX - carPos.x;
+      const dyB = canvasY - carPos.y;
+      const bodyDistance = Math.sqrt(dxB * dxB + dyB * dyB);
+      const bodyRadius = carPos.size / 2 + 10; // same as visual debug
+      const bodyHit = bodyDistance <= bodyRadius;
+
+      if (circleHit || bodyHit) {
+        // Prefer circle proximity (subtract small bias) so number circle chosen when overlapping both
+        const metric = circleHit ? circleDistance - 3 : bodyDistance;
+        if (metric < bestMetric) {
+          bestMetric = metric;
+          bestDriver = driverNumber;
+        }
+      }
+    }
+    return bestDriver;
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  onKeyDown(e: KeyboardEvent) {
+    if (e.key.toLowerCase() === 'h') {
+      this.showHoverDebug = !this.showHoverDebug;
+      console.log(`🔍 Hover debug ${this.showHoverDebug ? 'enabled' : 'disabled'}`);
+      this.drawTrack(); // redraw to add/remove outlines
+    }
+  }
+
+  /**
+   * Show tooltip for a specific driver
+   */
+  private showCarTooltip(driverNumber: number, clientX: number, clientY: number, locked: boolean = false): void {
+    // Get driver information
+    const driver = this.drivers.find(d => d.driver_number === driverNumber);
+    if (!driver) {
+      console.log(`❌ No driver found for driverNumber: ${driverNumber}`);
+      return;
+    }
+
+    // Get current position data for this driver
+    const driverPositionData = this.positionService.getDriverPosition(driverNumber);
+    
+    // Get car data if available
+    const carData = this.currentSimulationTime ? 
+      this.openf1ApiService.getDriverCarDataAtTime(driverNumber, this.currentSimulationTime, 5000) : null;
+
+    const tooltipData = {
+      driverNumber: driverNumber,
+      driverName: `${driver.first_name} ${driver.last_name}`,
+      driverAcronym: driver.name_acronym || driver.broadcast_name || `#${driverNumber}`,
+      teamColor: driver.car_color || '#888888',
+      teamName: driver.team_name || 'Unknown',
+      position: driverPositionData?.position || 'N/A',
+      carData: carData
+    };
+
+    // Debug log the exact tooltip data being displayed
+    console.log(`🏎️ Tooltip Data for Driver ${driverNumber}:`, {
+      hoveredDriverData: this.hoveredDriverData,
+      rawDriverInfo: driver,
+      rawPositionData: driverPositionData,
+      rawCarData: carData,
+      currentSimulationTime: this.currentSimulationTime?.toISOString()
+    });
+
+    // Position tooltip near mouse but avoid edges
+    const tooltipOffset = 15;
+  // If locked, nudge position a bit differently so user can tell it's pinned
+    this.ngZone.run(() => {
+      this.hoveredDriverData = tooltipData;
+      const xOffset = locked ? 25 : tooltipOffset;
+      const yOffset = locked ? 120 : 100;
+      this.tooltipX = Math.min(clientX + xOffset, window.innerWidth - 220);
+      this.tooltipY = Math.max(clientY - yOffset, 10);
+      this.showTooltip = true;
+      if (locked) {
+        console.log(`📌 Locked tooltip for driver ${driverNumber} at (${this.tooltipX}, ${this.tooltipY})`);
+      } else {
+        console.log(`👆 Hover tooltip for driver ${driverNumber} at (${this.tooltipX}, ${this.tooltipY})`);
+      }
+      this.cdr.detectChanges();
+    });
+  }
+
+  /**
+   * Hide tooltip
+   */
+  private hideTooltip(force: boolean = false): void {
+    if (this.tooltipLockedDriver !== null && !force) return; // Don't hide if locked unless forced
+    this.ngZone.run(() => {
+      this.showTooltip = false;
+      this.hoveredDriverData = null;
+      this.cdr.detectChanges();
+    });
+  }
+
+  /**
+   * Handle race start detection event
+   */
+  private handleRaceStartDetected(raceInfo: { raceStartTime: Date, isFormationLap: boolean }): void {
+    this.raceStartTime = raceInfo.raceStartTime;
+    
+    // Don't jump to race start time - let the formation lap play naturally
+    // Just store the race start time for reference and start the comment sequence
+    if (raceInfo.isFormationLap) {
+      console.log('🏁 Formation lap detected - race will start naturally with comments');
+      console.log(`🏁 Race start time set to: ${raceInfo.raceStartTime.toISOString()}`);
+    } else {
+      console.log('🏁 Direct race start detected - no formation lap');
+    }
+  }
+
+  /**
+   * Detect race start time and formation lap
+   */
+  private detectRaceStart(): void {
+    this.openf1ApiService.detectRaceStart().subscribe({
+      next: (raceInfo) => {
+        this.animationControlService.setRaceStartInfo(raceInfo.raceStartTime, raceInfo.isFormationLap);
+        this.handleRaceStartDetected(raceInfo);
+      },
+      error: (error) => {
+        console.warn('Could not detect race start:', error);
+        // Fallback to session start time
+        if (this.sessionStartTime) {
+          this.animationControlService.setRaceStartInfo(this.sessionStartTime, false);
+        }
+      }
+    });
+  }
+
+  /**
+   * Start the race sequence with comments (called when user presses start)
+   */
+  startRaceSequence(): void {
+    // Execute the race start sequence through comments when user starts
+    this.raceCommentaryService.executeRaceStartSequence();
+    console.log('🏁 Race sequence started with comments - formation lap begins');
   }
 }

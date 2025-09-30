@@ -47,6 +47,7 @@ export class RaceCommentaryService {
   private lastProcessedTime: Date | null = null;
   private currentCompleteStandings: DriverPositionData[] = [];
   private lastPositionUpdateTime: Date | null = null;
+  private raceSequenceExecuted = false; // Flag to prevent duplicate race start sequences
   
   // Master driver registry - always maintains complete driver list
   private masterDriverRegistry: Map<number, DriverPositionData> = new Map();
@@ -567,6 +568,7 @@ export class RaceCommentaryService {
     this.commentsSubject.next([]);
     this.currentCompleteStandings = [];
     this.lastPositionUpdateTime = null;
+    this.raceSequenceExecuted = false; // Reset race sequence flag when clearing comments
     // Don't clear masterDriverRegistry unless it's a session change
     // The registry should persist to maintain driver continuity
   }
@@ -792,5 +794,86 @@ export class RaceCommentaryService {
 
     this.allComments.unshift(comment);
     this.commentsSubject.next([...this.allComments]);
+  }
+
+  // Method to add formation lap comment
+  addFormationLapComment(): void {
+    const currentTime = this.animationControlService.getCurrentTime();
+    if (!currentTime) return;
+
+    const comment: RaceComment = {
+      id: `formation-${Date.now()}`,
+      time: currentTime,
+      timeString: this.formatTime(currentTime),
+      text: '🏁 The drivers are taking the formation lap, preparing for the race start',
+      type: 'info'
+    };
+
+    this.allComments.unshift(comment);
+    this.commentsSubject.next([...this.allComments]);
+    console.log('🏁 Added formation lap comment');
+  }
+
+  // Method to add countdown comments
+  addCountdownComment(count: number): void {
+    const currentTime = this.animationControlService.getCurrentTime();
+    if (!currentTime) return;
+
+    let text: string;
+    let emoji: string;
+
+    switch (count) {
+      case 3:
+        text = '🔴 3...';
+        emoji = '🔴';
+        break;
+      case 2:
+        text = '🟡 2...';
+        emoji = '🟡';
+        break;
+      case 1:
+        text = '🟢 1... GET READY!';
+        emoji = '🟢';
+        break;
+      case 0:
+        text = '🏁 LIGHTS OUT AND AWAY WE GO!';
+        emoji = '🏁';
+        break;
+      default:
+        return;
+    }
+
+    const comment: RaceComment = {
+      id: `countdown-${count}-${Date.now()}`,
+      time: currentTime,
+      timeString: this.formatTime(currentTime),
+      text,
+      type: 'info'
+    };
+
+    this.allComments.unshift(comment);
+    this.commentsSubject.next([...this.allComments]);
+    console.log(`🏁 Added countdown comment: ${text}`);
+  }
+
+  // Method to execute the full race start sequence
+  executeRaceStartSequence(): void {
+    // Prevent duplicate execution
+    if (this.raceSequenceExecuted) {
+      console.log('🏁 Race start sequence already executed, skipping...');
+      return;
+    }
+    
+    console.log('🏁 Starting race start sequence...');
+    this.raceSequenceExecuted = true;
+    
+    // Add formation lap comment immediately
+    this.addFormationLapComment();
+
+    // Schedule countdown comments
+    setTimeout(() => this.addCountdownComment(3), 2000);  // 2 seconds after formation lap
+    setTimeout(() => this.addCountdownComment(2), 3000);  // 1 second later
+    setTimeout(() => this.addCountdownComment(1), 4000);  // 1 second later
+    setTimeout(() => this.addCountdownComment(0), 5000);  // 1 second later
   }
 }

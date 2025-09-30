@@ -28,10 +28,13 @@ export class Openf1ApiService {
 
   // Dynamic loading properties
   private loadedDataSegments: Map<string, any[]> = new Map();
+  private loadedCarDataSegments: Map<string, any[]> = new Map();
   private sessionStartTime: Date | null = null;
   private readonly CHUNK_DURATION_MS = 5 * 60 * 1000; // 5 minutes
   private chunkObservableCache = new Map<string, Observable<any[]>>(); // in-flight chunk loads
+  private carDataChunkObservableCache = new Map<string, Observable<any[]>>(); // in-flight car data chunk loads
   private loadingChunkKeys = new Set<string>();
+  private loadingCarDataChunkKeys = new Set<string>();
 
   constructor(
     private http: HttpClient,
@@ -67,12 +70,15 @@ export class Openf1ApiService {
       this.driverDataCache.clear();
       this.driverObservableCache.clear();
       this.loadedDataSegments.clear();
+      this.loadedCarDataSegments.clear();
       this.sessionStartTime = null;
       this.idb.clearStore('apiCache');
       this.idb.clearStore('driverApiCache');
       this.idb.clearStore('halfRaceTrack');
   this.chunkObservableCache.clear();
+  this.carDataChunkObservableCache.clear();
   this.loadingChunkKeys.clear();
+  this.loadingCarDataChunkKeys.clear();
     }
   }
 
@@ -299,9 +305,194 @@ export class Openf1ApiService {
   clearLoadedSegments(): void {
     console.log('🧹 Clearing all loaded data segments');
     this.loadedDataSegments.clear();
+    this.loadedCarDataSegments.clear();
     this.sessionStartTime = null;
   this.chunkObservableCache.clear();
+  this.carDataChunkObservableCache.clear();
   this.loadingChunkKeys.clear();
+  this.loadingCarDataChunkKeys.clear();
+  }
+
+  /**
+   * Fetches car data for ALL drivers for the first 5 minutes of the session
+   * This single call provides all the car telemetry data needed for the simulation
+   */
+  getAllDriversCarData(): Observable<any[]> {
+    return this.getSessionTimeBounds().pipe(
+      switchMap(({ startTime }) => {
+        this.sessionStartTime = startTime;
+        
+        // Start by loading the first chunk of car data
+        return this.loadCarDataChunk(0);
+      })
+    );
+  }
+
+  /**
+   * Loads a specific 5-minute chunk of car data
+   * @param chunkIndex 0 = first 5 minutes, 1 = next 5 minutes, etc.
+   * @param showLoading Whether to show loading indicator (true for initial load, false for background loading)
+   */
+  loadCarDataChunk(chunkIndex: number, showLoading: boolean = true): Observable<any[]> {
+    if (!this.sessionStartTime) {
+      throw new Error('Session start time not available');
+    }
+
+    const chunkStartTime = new Date(this.sessionStartTime.getTime() + chunkIndex * this.CHUNK_DURATION_MS);
+    const chunkEndTime = new Date(chunkStartTime.getTime() + this.CHUNK_DURATION_MS);
+    
+    const chunkKey = `car_${chunkIndex}`;
+    
+    // Check if this chunk is already loaded
+    if (this.loadedCarDataSegments.has(chunkKey)) {
+      console.log(`🚗 Car data chunk ${chunkIndex} already loaded from memory`);
+      return of(this.getCombinedLoadedCarData());
+    }
+
+    // If there's an in-flight observable for this chunk, reuse it
+    if (this.carDataChunkObservableCache.has(chunkKey)) {
+      console.log(`⌛ Reusing in-flight car data chunk request ${chunkIndex}`);
+      return this.carDataChunkObservableCache.get(chunkKey)!;
+    }
+
+    const startStr = chunkStartTime.toISOString();
+    const endStr = chunkEndTime.toISOString();
+    
+    const url = `${this.baseUrl}/car_data?session_key=${this.sessionKey}&date%3E${encodeURIComponent(startStr)}&date%3C${encodeURIComponent(endStr)}`;
+    
+    if (showLoading) {
+      console.log(`🚗 Loading car data chunk ${chunkIndex} (${chunkIndex * 5}-${(chunkIndex + 1) * 5} minutes):`);
+    } else {
+      console.log(`🔄 Background loading car data chunk ${chunkIndex} (${chunkIndex * 5}-${(chunkIndex + 1) * 5} minutes):`);
+    }
+    console.log('   📅 Chunk start:', startStr);
+    console.log('   📅 Chunk end:', endStr);
+    
+    if (this.cache.has(url)) {
+      console.log('📦 Car data chunk loaded from cache');
+      const chunkData = this.cache.get(url);
+      this.loadedCarDataSegments.set(chunkKey, chunkData);
+      return of(this.getCombinedLoadedCarData());
+    }
+
+    if (showLoading) {
+      console.log('🌐 Fetching fresh car data chunk from OpenF1 API...');
+      this.loadingService.show();
+    } else {
+      console.log('🌐 Silently fetching car data chunk in background...');
+    }
+    
+    const obs = this.http.get<any[]>(url).pipe(
+      tap(chunkData => {
+        const loadingText = showLoading ? 'Successfully loaded' : 'Background loaded';
+        console.log(`✅ ${loadingText} car data chunk ${chunkIndex}: ${chunkData.length} car data points!`);
+        this.cache.set(url, chunkData);
+        this.loadedCarDataSegments.set(chunkKey, chunkData);
+        this.persistApiCache();
+      }),
+      map(() => this.getCombinedLoadedCarData()),
+      finalize(() => {
+        if (showLoading) {
+          this.loadingService.hide();
+        }
+        this.carDataChunkObservableCache.delete(chunkKey);
+        this.loadingCarDataChunkKeys.delete(chunkKey);
+      }),
+      shareReplay(1)
+    );
+
+    this.carDataChunkObservableCache.set(chunkKey, obs);
+    this.loadingCarDataChunkKeys.add(chunkKey);
+    return obs;
+  }
+
+  /**
+   * Checks if more car data should be loaded based on current simulation time
+   * @param currentTime Current simulation time
+   * @returns Observable that emits updated car data if new chunk was loaded
+   */
+  checkAndLoadMoreCarData(currentTime: Date): Observable<any[]> {
+    if (!this.sessionStartTime) {
+      return of(this.getCombinedLoadedCarData());
+    }
+
+    const elapsedMs = currentTime.getTime() - this.sessionStartTime.getTime();
+    const elapsedChunks = Math.floor(elapsedMs / this.CHUNK_DURATION_MS);
+    const currentChunk = elapsedChunks;
+    const progressInCurrentChunk = (elapsedMs % this.CHUNK_DURATION_MS) / this.CHUNK_DURATION_MS;
+
+    // Load next chunk when we're 80% through the current chunk
+    if (progressInCurrentChunk >= 0.8) {
+      const nextChunk = currentChunk + 1;
+      const nextChunkKey = `car_${nextChunk}`;
+      
+      if (!this.loadedCarDataSegments.has(nextChunkKey) && !this.loadingCarDataChunkKeys.has(nextChunkKey)) {
+        console.log(`🔄 Simulation is 80% through chunk ${currentChunk}, loading next car data chunk ${nextChunk} in background...`);
+        return this.loadCarDataChunk(nextChunk, false); // false = background loading without loading modal
+      } else if (this.carDataChunkObservableCache.has(nextChunkKey)) {
+        return this.carDataChunkObservableCache.get(nextChunkKey)!;
+      }
+    }
+
+    return of(this.getCombinedLoadedCarData());
+  }
+
+  /**
+   * Combines all loaded car data segments into a single array
+   */
+  private getCombinedLoadedCarData(): any[] {
+    const allData: any[] = [];
+    
+    // Sort chunk keys to ensure chronological order
+    const sortedKeys = Array.from(this.loadedCarDataSegments.keys())
+      .map(key => key.replace('car_', ''))
+      .map(key => parseInt(key))
+      .sort((a, b) => a - b)
+      .map(num => `car_${num}`);
+
+    for (const key of sortedKeys) {
+      const chunkData = this.loadedCarDataSegments.get(key);
+      if (chunkData) {
+        allData.push(...chunkData);
+      }
+    }
+
+    console.log(`🚗 Combined car data: ${allData.length} total points from ${this.loadedCarDataSegments.size} chunks`);
+    return allData;
+  }
+
+  /**
+   * Gets car data for a specific driver at a specific time
+   * @param driverNumber Driver number
+   * @param currentTime Current simulation time
+   * @param timeWindow Time window to search within (in milliseconds)
+   */
+  getDriverCarDataAtTime(driverNumber: number, currentTime: Date, timeWindow: number = 5000): any | null {
+    const allCarData = this.getCombinedLoadedCarData();
+    const currentTimestamp = currentTime.getTime();
+
+    // Find car data for the specific driver within the time window
+    const driverCarData = allCarData
+      .filter(data => data.driver_number === driverNumber)
+      .filter(data => {
+        const dataTime = new Date(data.date).getTime();
+        return Math.abs(dataTime - currentTimestamp) <= timeWindow;
+      })
+      .sort((a, b) => Math.abs(new Date(a.date).getTime() - currentTimestamp) - Math.abs(new Date(b.date).getTime() - currentTimestamp));
+
+    return driverCarData.length > 0 ? driverCarData[0] : null;
+  }
+
+  /**
+   * Gets information about loaded car data segments for debugging
+   */
+  getLoadedCarDataSegmentsInfo(): any {
+    return {
+      totalSegments: this.loadedCarDataSegments.size,
+      segmentKeys: Array.from(this.loadedCarDataSegments.keys()),
+      totalDataPoints: this.getCombinedLoadedCarData().length,
+      sessionStartTime: this.sessionStartTime
+    };
   }
 
   getSessionInfo(): Observable<any> {
@@ -376,6 +567,102 @@ export class Openf1ApiService {
 
     this.driverObservableCache.set(url, driversObservable);
     return driversObservable;
+  }
+
+  /**
+   * Detects the actual race start time by analyzing position changes and speed data
+   * Formation lap typically has slower speeds and less position changes
+   * Race start is detected when there's significant speed increase and position volatility
+   */
+  detectRaceStart(): Observable<{ raceStartTime: Date, isFormationLap: boolean }> {
+    return this.getSessionTimeBounds().pipe(
+      switchMap(({ startTime }) => {
+        // Get position data for the first 10 minutes to analyze race start patterns
+        const endTime = new Date(startTime.getTime() + 10 * 60 * 1000);
+        const posUrl = `${this.baseUrl}/position?session_key=${this.sessionKey}&date%3E${encodeURIComponent(startTime.toISOString())}&date%3C${encodeURIComponent(endTime.toISOString())}`;
+        
+        return this.http.get<any[]>(posUrl).pipe(
+          map(positions => {
+            if (!positions || positions.length === 0) {
+              return { raceStartTime: startTime, isFormationLap: false };
+            }
+
+            // Sort by time
+            const sortedPositions = positions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            
+            // Analyze position volatility in 30-second windows
+            const windowSize = 30000; // 30 seconds
+            let maxVolatility = 0;
+            let raceStartTime = startTime;
+            let currentTime = startTime.getTime();
+            const endAnalysisTime = startTime.getTime() + 8 * 60 * 1000; // Analyze first 8 minutes
+
+            while (currentTime < endAnalysisTime) {
+              const windowStart = currentTime;
+              const windowEnd = currentTime + windowSize;
+              
+              // Get positions in this window
+              const windowPositions = sortedPositions.filter(pos => {
+                const posTime = new Date(pos.date).getTime();
+                return posTime >= windowStart && posTime <= windowEnd;
+              });
+
+              if (windowPositions.length > 10) { // Enough data points
+                // Calculate position volatility (how much positions change)
+                const positionChanges = this.calculatePositionVolatility(windowPositions);
+                
+                // Race start typically has high volatility (lots of position changes)
+                if (positionChanges > maxVolatility) {
+                  maxVolatility = positionChanges;
+                  raceStartTime = new Date(windowStart + windowSize / 2); // Middle of window
+                }
+              }
+
+              currentTime += 15000; // Move window by 15 seconds
+            }
+
+            // If we found significant volatility after the initial period, that's likely race start
+            const timeSinceStart = raceStartTime.getTime() - startTime.getTime();
+            const isFormationLap = timeSinceStart > 60000; // More than 1 minute suggests formation lap
+
+            console.log(`🏁 Race start detection: ${isFormationLap ? 'Formation lap detected' : 'Direct race start'}`);
+            console.log(`🏁 Detected race start time: ${raceStartTime.toISOString()}`);
+
+            return { raceStartTime, isFormationLap };
+          })
+        );
+      })
+    );
+  }
+
+  /**
+   * Calculate position volatility in a time window
+   */
+  private calculatePositionVolatility(positions: any[]): number {
+    const positionsByDriver = new Map<number, number[]>();
+    
+    // Group positions by driver
+    positions.forEach(pos => {
+      if (!positionsByDriver.has(pos.driver_number)) {
+        positionsByDriver.set(pos.driver_number, []);
+      }
+      positionsByDriver.get(pos.driver_number)!.push(pos.position);
+    });
+
+    // Calculate average position change per driver
+    let totalVolatility = 0;
+    let driverCount = 0;
+
+    positionsByDriver.forEach(driverPositions => {
+      if (driverPositions.length > 1) {
+        const changes = driverPositions.slice(1).map((pos, i) => Math.abs(pos - driverPositions[i]));
+        const avgChange = changes.reduce((sum, change) => sum + change, 0) / changes.length;
+        totalVolatility += avgChange;
+        driverCount++;
+      }
+    });
+
+    return driverCount > 0 ? totalVolatility / driverCount : 0;
   }
 
   /**
