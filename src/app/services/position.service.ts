@@ -72,8 +72,8 @@ export class PositionService {
     ]).pipe(
       distinctUntilChanged(([prevTime, prevPlaying], [currTime, currPlaying]) => {
         if (!prevTime || !currTime) return false;
-        // Update every 2 seconds during simulation or when play state changes
-        return Math.abs(prevTime.getTime() - currTime.getTime()) < 2000 && prevPlaying === currPlaying;
+        // Update more frequently (every 1 second) for real-time car data updates
+        return Math.abs(prevTime.getTime() - currTime.getTime()) < 1000 && prevPlaying === currPlaying;
       })
     ).subscribe(([currentTime]) => {
       if (currentTime) {
@@ -177,7 +177,8 @@ export class PositionService {
         const recentPositions = beforePositions
           .slice(-30) // Take last 30 records
           .reduce((acc: Map<number, DriverPositionData>, pos) => {
-            acc.set(pos.driverNumber, this.enrichPositionData(pos));
+            // Pass current simulation time for real-time car data
+            acc.set(pos.driverNumber, this.enrichPositionData(pos, currentTime));
             return acc;
           }, new Map());
 
@@ -194,7 +195,8 @@ export class PositionService {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .reduce((acc: Map<number, DriverPositionData>, pos) => {
         if (!acc.has(pos.driverNumber)) {
-          acc.set(pos.driverNumber, this.enrichPositionData(pos));
+          // Pass current simulation time for real-time car data
+          acc.set(pos.driverNumber, this.enrichPositionData(pos, currentTime));
         }
         return acc;
       }, new Map());
@@ -205,15 +207,22 @@ export class PositionService {
     this.currentPositionsSubject.next(currentPositions);
   }
 
-  private enrichPositionData(position: DriverPositionData): DriverPositionData {
+  private enrichPositionData(position: DriverPositionData, currentSimulationTime?: Date): DriverPositionData {
     const driver = this.driversCache.find(d => d.driver_number === position.driverNumber);
     
-    // Get car data for this driver at this time if available
+    // Get car data for this driver at the current simulation time (for real-time updates) 
+    // or at the position time (for historical data)
+    const timeForCarData = currentSimulationTime || new Date(position.date);
     const carData = this.openf1ApiService.getDriverCarDataAtTime(
       position.driverNumber, 
-      new Date(position.date), 
+      timeForCarData, 
       5000 // 5 second window
     );
+    
+    // Debug log car data updates when using current simulation time
+    if (currentSimulationTime && carData) {
+      console.log(`🚗 Real-time car data for Driver ${position.driverNumber}: Speed=${carData.speed} km/h, Gear=${carData.n_gear}, RPM=${carData.rpm}`);
+    }
     
     return {
       ...position,
@@ -316,21 +325,30 @@ export class PositionService {
       });
     }
 
-    // Update positions in the race table
+    // Update positions and car data in the race table
     let hasUpdates = false;
+    
+    // First, update drivers with recent position changes
     recentUpdates.forEach((positionUpdate, driverNumber) => {
       const currentDriverData = this.racePositionsTable.get(driverNumber);
       if (currentDriverData && currentDriverData.position !== positionUpdate.position) {
-        const updatedData = this.enrichPositionData(positionUpdate);
+        // Pass current simulation time to get real-time car data
+        const updatedData = this.enrichPositionData(positionUpdate, currentTime);
         this.racePositionsTable.set(driverNumber, updatedData);
         hasUpdates = true;
       }
     });
-
-    if (hasUpdates) {
-      this.normalizePositions();
-      this.emitRaceTable();
-    }
+    
+    // Then, update car data for ALL drivers in the race table with current simulation time
+    // This ensures car data (speed, gear, etc.) updates continuously even without position changes
+    this.racePositionsTable.forEach((driverData, driverNumber) => {
+      const updatedData = this.enrichPositionData(driverData, currentTime);
+      this.racePositionsTable.set(driverNumber, updatedData);
+    });
+    
+    // Always emit the race table since car data should update continuously
+    this.normalizePositions();
+    this.emitRaceTable();
   }
 
   /**
@@ -395,7 +413,8 @@ export class PositionService {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .reduce((acc: Map<number, DriverPositionData>, pos) => {
         if (!acc.has(pos.driverNumber)) {
-          acc.set(pos.driverNumber, this.enrichPositionData(pos));
+          // Use the provided time for car data to get appropriate historical or real-time data
+          acc.set(pos.driverNumber, this.enrichPositionData(pos, time));
         }
         return acc;
       }, new Map());

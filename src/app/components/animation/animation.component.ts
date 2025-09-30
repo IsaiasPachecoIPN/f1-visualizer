@@ -92,6 +92,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   }>(); // Track car positions for hover detection & debug
   private tooltipLockedDriver: number | null = null; // When set, tooltip stays visible
   private showHoverDebug = true; // Toggle with 'h'
+  private hoverDebounceTimeout: number | null = null; // For debouncing hover events
 
   // Race sequence tracking
   private raceSequenceStarted = false;
@@ -197,6 +198,11 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.subscriptions.forEach(sub => sub.unsubscribe());
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
+    }
+    
+    // Clean up hover debounce timeout
+    if (this.hoverDebounceTimeout) {
+      clearTimeout(this.hoverDebounceTimeout);
     }
     
     // Clean up canvas event listeners
@@ -676,6 +682,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         this.panX = mouseX - worldX * this.zoom;
         this.panY = mouseY - worldY * this.zoom;
         
+        // Update locked tooltip position if present
+        this.updateLockedTooltipPosition();
+        
         this.drawTrack();
       }
     });
@@ -704,10 +713,13 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
         
+        // Update locked tooltip position if present
+        this.updateLockedTooltipPosition();
+        
         this.drawTrack();
       } else {
-        // Check for circle-only hover (reduced event spam)
-        this.handleCarHover(mouseX, mouseY, e.clientX, e.clientY);
+        // Check for circle-only hover with debouncing for performance
+        this.debouncedHoverCheck(mouseX, mouseY, e.clientX, e.clientY);
       }
     });
 
@@ -774,6 +786,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.panX = centerX - worldX * this.zoom;
       this.panY = centerY - worldY * this.zoom;
       
+      // Update locked tooltip position if present
+      this.updateLockedTooltipPosition();
+      
       this.drawTrack();
     }
   }
@@ -793,6 +808,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       this.panX = centerX - worldX * this.zoom;
       this.panY = centerY - worldY * this.zoom;
       
+      // Update locked tooltip position if present
+      this.updateLockedTooltipPosition();
+      
       this.drawTrack();
     }
   }
@@ -801,6 +819,10 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.zoom = 1;
     this.panX = 0;
     this.panY = 0;
+    
+    // Update locked tooltip position if present
+    this.updateLockedTooltipPosition();
+    
     this.drawTrack();
   }
 
@@ -888,7 +910,10 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     // Store car position for hover detection (including both car and driver number circle)
     const circleX = x + circleOffset;
     const circleY = y - circleOffset;
-    const detectionRadius = Math.max(circleRadius + 4, 14); // mirror logic in findDriverCircleAt
+    const detectionRadius = Math.max(circleRadius + 4, 14);
+    
+    // Store essential position data for backup hover detection
+    // Note: Primary hit detection now recalculates positions on-the-fly for zoom accuracy
     this.carPositions.set(driverNumber, { 
       x, 
       y, 
@@ -946,9 +971,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.ctx.textBaseline = 'middle';
     this.ctx.fillText(String(driverNumber), circleX, circleY);
 
-    // // Debug hover visualization
+    // Debug hover visualization (press 'h' to toggle)
     // if (this.showHoverDebug) {
-    //   // Detection radius circle
+    //   // Detection radius circle for driver number
     //   this.ctx.beginPath();
     //   this.ctx.strokeStyle = 'rgba(255, 255, 0, 0.6)';
     //   this.ctx.lineWidth = 1;
@@ -957,10 +982,20 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     //   this.ctx.stroke();
     //   this.ctx.setLineDash([]);
 
-    //   // Car body approximate hover (legacy) for reference
+    //   // Car body approximate hover area
     //   this.ctx.beginPath();
     //   this.ctx.strokeStyle = 'rgba(0, 255, 255, 0.35)';
     //   this.ctx.arc(x, y, carSize / 2 + 10, 0, 2 * Math.PI);
+    //   this.ctx.stroke();
+      
+    //   // Cross-hair at car center
+    //   this.ctx.beginPath();
+    //   this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+    //   this.ctx.lineWidth = 1;
+    //   this.ctx.moveTo(x - 5, y);
+    //   this.ctx.lineTo(x + 5, y);
+    //   this.ctx.moveTo(x, y - 5);
+    //   this.ctx.lineTo(x, y + 5);
     //   this.ctx.stroke();
     // }
 
@@ -969,7 +1004,22 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Handle car hover detection
+   * Debounced hover check for better performance during rapid mouse movement
+   */
+  private debouncedHoverCheck(canvasX: number, canvasY: number, clientX: number, clientY: number): void {
+    // Clear existing timeout
+    if (this.hoverDebounceTimeout) {
+      clearTimeout(this.hoverDebounceTimeout);
+    }
+    
+    // Set new timeout for hover check
+    this.hoverDebounceTimeout = window.setTimeout(() => {
+      this.handleCarHover(canvasX, canvasY, clientX, clientY);
+    }, 16); // ~60fps responsiveness
+  }
+
+  /**
+   * Handle car hover detection - improved for zoom/pan consistency
    */
   private handleCarHover(canvasX: number, canvasY: number, clientX: number, clientY: number): void {
     // If locked, ignore hover except for updating position when hovering same circle
@@ -980,34 +1030,78 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       }
       return;
     }
-  const hoveredDriver = this.findDriverHitAt(canvasX, canvasY);
+    
+    const hoveredDriver = this.findDriverHitAt(canvasX, canvasY);
+    const canvas = this.canvas.nativeElement;
+    
     if (hoveredDriver !== null) {
+      // Change cursor to pointer when hovering over a driver
+      canvas.style.cursor = 'pointer';
       this.showCarTooltip(hoveredDriver, clientX, clientY, false);
-    } else if (this.showTooltip) {
-      this.hideTooltip();
+    } else {
+      // Reset cursor to grab when not hovering over a driver
+      canvas.style.cursor = this.isDragging ? 'grabbing' : 'grab';
+      if (this.showTooltip) {
+        this.hideTooltip();
+      }
     }
   }
 
   /**
    * Find which driver's number circle (if any) is at the given canvas coordinates
+   * Improved version that recalculates world coordinates on the fly
    */
   private findDriverHitAt(canvasX: number, canvasY: number): number | null {
+    if (!this.currentSimulationTime) return null;
+    
     let bestDriver: number | null = null;
     let bestMetric = Number.POSITIVE_INFINITY;
-    for (const [driverNumber, carPos] of this.carPositions) {
-      // Circle (number) hit
-      const dxC = canvasX - carPos.circleX;
-      const dyC = canvasY - carPos.circleY;
+    
+    // Convert canvas coordinates to world coordinates for accurate hit testing
+    const worldX = (canvasX - this.panX) / this.zoom;
+    const worldY = (canvasY - this.panY) / this.zoom;
+    
+    const { scale, offsetX, offsetY } = this.getScaleAndOffset();
+    
+    for (const driver of this.drivers) {
+      const driverNumber = driver.driver_number;
+      const driverTrajectory = this.trajectories.get(driverNumber);
+      if (!driverTrajectory || driverTrajectory.length === 0) continue;
+      
+      // Find current position for this driver
+      const position = this.findPositionAtTime(driverTrajectory, this.currentSimulationTime);
+      if (!position) continue;
+      
+      // Calculate current screen coordinates for this driver
+      const screenX = position.x * scale + offsetX;
+      const screenY = position.y * scale + offsetY;
+      
+      // Calculate scaled sizes based on current zoom level
+      const baseCarSize = 24;
+      const baseCircleRadius = 8;
+      const baseCircleOffset = 10;
+      
+      const carSize = Math.max(12, Math.min(48, baseCarSize * this.zoom));
+      const circleRadius = Math.max(4, Math.min(16, baseCircleRadius * this.zoom));
+      const circleOffset = Math.max(5, Math.min(20, baseCircleOffset * this.zoom));
+      
+      const circleX = screenX + circleOffset;
+      const circleY = screenY - circleOffset;
+      const detectionRadius = Math.max(circleRadius + 4, 14);
+      
+      // Check circle hit (driver number)
+      const dxC = canvasX - circleX;
+      const dyC = canvasY - circleY;
       const circleDistance = Math.sqrt(dxC * dxC + dyC * dyC);
-      const circleHit = circleDistance <= carPos.detectionRadius;
-
-      // Car body approximate hit
-      const dxB = canvasX - carPos.x;
-      const dyB = canvasY - carPos.y;
+      const circleHit = circleDistance <= detectionRadius;
+      
+      // Check car body hit
+      const dxB = canvasX - screenX;
+      const dyB = canvasY - screenY;
       const bodyDistance = Math.sqrt(dxB * dxB + dyB * dyB);
-      const bodyRadius = carPos.size / 2 + 10; // same as visual debug
+      const bodyRadius = carSize / 2 + 10;
       const bodyHit = bodyDistance <= bodyRadius;
-
+      
       if (circleHit || bodyHit) {
         // Prefer circle proximity (subtract small bias) so number circle chosen when overlapping both
         const metric = circleHit ? circleDistance - 3 : bodyDistance;
@@ -1017,6 +1111,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         }
       }
     }
+    
     return bestDriver;
   }
 
@@ -1093,6 +1188,42 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.ngZone.run(() => {
       this.showTooltip = false;
       this.hoveredDriverData = null;
+      this.cdr.detectChanges();
+    });
+  }
+
+  /**
+   * Update locked tooltip position when zooming/panning
+   */
+  private updateLockedTooltipPosition(): void {
+    if (this.tooltipLockedDriver === null || !this.showTooltip || !this.currentSimulationTime) {
+      return;
+    }
+
+    // Find current position of the locked driver
+    const driverTrajectory = this.trajectories.get(this.tooltipLockedDriver);
+    if (!driverTrajectory || driverTrajectory.length === 0) return;
+
+    const position = this.findPositionAtTime(driverTrajectory, this.currentSimulationTime);
+    if (!position) return;
+
+    // Calculate current screen coordinates
+    const { scale, offsetX, offsetY } = this.getScaleAndOffset();
+    const screenX = position.x * scale + offsetX;
+    const screenY = position.y * scale + offsetY;
+
+    // Convert screen coordinates to client coordinates
+    const canvas = this.canvas.nativeElement;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = rect.left + screenX;
+    const clientY = rect.top + screenY;
+
+    // Update tooltip position with locked offset
+    this.ngZone.run(() => {
+      const xOffset = 25; // locked offset
+      const yOffset = 120; // locked offset
+      this.tooltipX = Math.min(clientX + xOffset, window.innerWidth - 220);
+      this.tooltipY = Math.max(clientY - yOffset, 10);
       this.cdr.detectChanges();
     });
   }
