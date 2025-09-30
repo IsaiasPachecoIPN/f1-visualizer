@@ -58,7 +58,7 @@
       <select id="session-select" [ngModel]="selectedSession" (change)="onSessionChange($event)"
         [ngStyle]="{ width: '100%', 'max-width': '260px', padding: '6px 10px', 'border-radius': '8px', 'font-size': '13px', 'background': '#111', color: '#fff', border: '1px solid #333', 'font-family': 'inherit' }">
         <option disabled value="" *ngIf="!selectedSession">Select a session…</option>
-        <option *ngFor="let session of sessions" [value]="session.session_key" [title]="session.circuit_short_name + ' - ' + session.session_name">
+        <option *ngFor="let session of sessions$ | async" [value]="session.session_key" [title]="session.circuit_short_name + ' - ' + session.session_name">
           {{session.circuit_short_name}} - {{session.session_name}}
         </option>
       </select>

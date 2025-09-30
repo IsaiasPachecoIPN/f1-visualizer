@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of } from 'rxjs';
-import { tap, map, shareReplay, finalize, switchMap } from 'rxjs/operators';
+import { Observable, of, timer } from 'rxjs';
+import { tap, map, shareReplay, finalize, switchMap, delay, concatMap } from 'rxjs/operators';
 import { LoadingService } from './loading.service';
 import { IndexedDbCacheService } from './indexeddb-cache.service';
 
@@ -26,6 +26,16 @@ export class Openf1ApiService {
   private sessionKey: number = 9181;
   private halfRaceTrackCacheKeyPrefix = 'halfRaceTrack';
 
+  // Rate limiting properties
+  private lastRequestTime: number = 0;
+  private requestQueue: Array<() => Observable<any>> = [];
+  private readonly MIN_REQUEST_INTERVAL = 350; // 350ms between requests (allows ~2.8 requests/second, safely under 3/second)
+  private isProcessingQueue = false;
+
+  // Observable caching for sessions (to prevent multiple calls)
+  private sessionsObservableCache = new Map<number, Observable<any[]>>();
+  private sessionInfoObservableCache: Observable<any> | null = null;
+
   // Dynamic loading properties
   private loadedDataSegments: Map<string, any[]> = new Map();
   private loadedCarDataSegments: Map<string, any[]> = new Map();
@@ -42,6 +52,99 @@ export class Openf1ApiService {
     private idb: IndexedDbCacheService
   ) {
     this.hydrateCaches();
+  }
+
+  /**
+   * Rate-limited HTTP request wrapper
+   * Ensures we don't exceed 3 requests per second by spacing requests at least 350ms apart
+   */
+  private makeRateLimitedRequest<T>(url: string): Observable<T> {
+    return new Observable<T>(observer => {
+      const requestFn = () => {
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        
+        if (timeSinceLastRequest < this.MIN_REQUEST_INTERVAL) {
+          const delayTime = this.MIN_REQUEST_INTERVAL - timeSinceLastRequest;
+          console.log(`⏱️ Rate limiting: delaying request by ${delayTime}ms`);
+          
+          timer(delayTime).pipe(
+            switchMap(() => {
+              this.lastRequestTime = Date.now();
+              return this.http.get<T>(url);
+            })
+          ).subscribe({
+            next: (data) => observer.next(data),
+            error: (error) => observer.error(error),
+            complete: () => observer.complete()
+          });
+        } else {
+          this.lastRequestTime = now;
+          this.http.get<T>(url).subscribe({
+            next: (data) => observer.next(data),
+            error: (error) => observer.error(error),
+            complete: () => observer.complete()
+          });
+        }
+      };
+
+      requestFn();
+    });
+  }
+
+  /**
+   * Queue-based rate limiting for multiple simultaneous requests
+   * Processes requests one by one with proper spacing
+   */
+  private queueRequest<T>(requestFn: () => Observable<T>): Observable<T> {
+    return new Observable<T>(observer => {
+      this.requestQueue.push(() => requestFn().pipe(
+        tap({
+          next: (data) => observer.next(data),
+          error: (error) => observer.error(error),
+          complete: () => observer.complete()
+        })
+      ));
+
+      this.processQueue();
+    });
+  }
+
+  private processQueue(): void {
+    if (this.isProcessingQueue || this.requestQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+    const processNext = () => {
+      if (this.requestQueue.length === 0) {
+        this.isProcessingQueue = false;
+        return;
+      }
+
+      const nextRequest = this.requestQueue.shift()!;
+      const now = Date.now();
+      const timeSinceLastRequest = now - this.lastRequestTime;
+      
+      if (timeSinceLastRequest < this.MIN_REQUEST_INTERVAL) {
+        const delayTime = this.MIN_REQUEST_INTERVAL - timeSinceLastRequest;
+        console.log(`⏱️ Queue processing: delaying next request by ${delayTime}ms`);
+        
+        timer(delayTime).subscribe(() => {
+          this.lastRequestTime = Date.now();
+          nextRequest().subscribe({
+            complete: () => processNext()
+          });
+        });
+      } else {
+        this.lastRequestTime = now;
+        nextRequest().subscribe({
+          complete: () => processNext()
+        });
+      }
+    };
+
+    processNext();
   }
 
   private async hydrateCaches() {
@@ -75,27 +178,48 @@ export class Openf1ApiService {
       this.idb.clearStore('apiCache');
       this.idb.clearStore('driverApiCache');
       this.idb.clearStore('halfRaceTrack');
-  this.chunkObservableCache.clear();
-  this.carDataChunkObservableCache.clear();
-  this.loadingChunkKeys.clear();
-  this.loadingCarDataChunkKeys.clear();
+      this.chunkObservableCache.clear();
+      this.carDataChunkObservableCache.clear();
+      this.loadingChunkKeys.clear();
+      this.loadingCarDataChunkKeys.clear();
+      // Clear session-specific observable caches
+      this.sessionInfoObservableCache = null;
     }
   }
 
   getSessions(year: number): Observable<any[]> {
     const url = `${this.baseUrl}/sessions?year=${year}`;
+    
+    // Check memory cache first
     if (this.cache.has(url)) {
+      console.log('📦 Sessions loaded from memory cache');
       return of(this.cache.get(url));
     }
 
+    // Check if there's already an in-flight request for this year
+    if (this.sessionsObservableCache.has(year)) {
+      console.log('⌛ Reusing in-flight sessions request');
+      return this.sessionsObservableCache.get(year)!;
+    }
+
+    console.log(`🌐 Fetching sessions for year ${year} from OpenF1 API...`);
     this.loadingService.show();
-    return this.http.get<any[]>(url).pipe(
+    
+    const sessionsObservable = this.makeRateLimitedRequest<any[]>(url).pipe(
       tap(data => {
-  this.cache.set(url, data);
-  this.persistApiCache();
+        console.log(`✅ Successfully loaded ${data.length} sessions for year ${year}`);
+        this.cache.set(url, data);
+        this.persistApiCache();
       }),
-      finalize(() => this.loadingService.hide())
+      finalize(() => {
+        this.loadingService.hide();
+        this.sessionsObservableCache.delete(year);
+      }),
+      shareReplay(1)
     );
+
+    this.sessionsObservableCache.set(year, sessionsObservable);
+    return sessionsObservable;
   }
 
   /**
@@ -110,7 +234,7 @@ export class Openf1ApiService {
     }
 
     this.loadingService.show();
-    return this.http.get<any[]>(url).pipe(
+    return this.makeRateLimitedRequest<any[]>(url).pipe(
       tap(data => {
   this.cache.set(url, data);
   this.persistApiCache();
@@ -131,7 +255,7 @@ export class Openf1ApiService {
     }
 
     this.loadingService.show();
-    return this.http.get<any[]>(url).pipe(
+    return this.makeRateLimitedRequest<any[]>(url).pipe(
       tap(data => {
         this.cache.set(url, data);
           this.persistApiCache();
@@ -209,7 +333,7 @@ export class Openf1ApiService {
       console.log('🌐 Silently fetching chunk data in background...');
     }
     
-    const obs = this.http.get<any[]>(url).pipe(
+    const obs = this.makeRateLimitedRequest<any[]>(url).pipe(
       tap(chunkData => {
         const loadingText = showLoading ? 'Successfully loaded' : 'Background loaded';
         console.log(`✅ ${loadingText} chunk ${chunkIndex}: ${chunkData.length} location data points!`);
@@ -382,7 +506,7 @@ export class Openf1ApiService {
       console.log('🌐 Silently fetching car data chunk in background...');
     }
     
-    const obs = this.http.get<any[]>(url).pipe(
+    const obs = this.makeRateLimitedRequest<any[]>(url).pipe(
       tap(chunkData => {
         const loadingText = showLoading ? 'Successfully loaded' : 'Background loaded';
         console.log(`✅ ${loadingText} car data chunk ${chunkIndex}: ${chunkData.length} car data points!`);
@@ -497,18 +621,36 @@ export class Openf1ApiService {
 
   getSessionInfo(): Observable<any> {
     const url = `${this.baseUrl}/sessions?session_key=${this.sessionKey}`;
+    
+    // Check memory cache first
     if (this.cache.has(url)) {
+      console.log('📦 Session info loaded from memory cache');
       return of(this.cache.get(url));
     }
 
+    // Check if there's already an in-flight request for this session
+    if (this.sessionInfoObservableCache) {
+      console.log('⌛ Reusing in-flight session info request');
+      return this.sessionInfoObservableCache;
+    }
+
+    console.log(`🌐 Fetching session info for session ${this.sessionKey} from OpenF1 API...`);
     this.loadingService.show();
-    return this.http.get<any>(url).pipe(
+    
+    this.sessionInfoObservableCache = this.makeRateLimitedRequest<any>(url).pipe(
       tap(data => {
-  this.cache.set(url, data);
-  this.persistApiCache();
+        console.log(`✅ Successfully loaded session info for session ${this.sessionKey}`);
+        this.cache.set(url, data);
+        this.persistApiCache();
       }),
-      finalize(() => this.loadingService.hide())
+      finalize(() => {
+        this.loadingService.hide();
+        this.sessionInfoObservableCache = null;
+      }),
+      shareReplay(1)
     );
+
+    return this.sessionInfoObservableCache;
   }
 
   getSessionTimeBounds(): Observable<{startTime: Date, endTime: Date}> {
@@ -530,7 +672,7 @@ export class Openf1ApiService {
     }
 
     this.loadingService.show();
-    return this.http.get<any[]>(url).pipe(
+    return this.makeRateLimitedRequest<any[]>(url).pipe(
       tap(data => {
   this.cache.set(url, data);
   this.persistApiCache();
@@ -550,7 +692,7 @@ export class Openf1ApiService {
     }
 
     this.loadingService.show();
-    const driversObservable = this.http.get<any[]>(url).pipe(
+    const driversObservable = this.makeRateLimitedRequest<any[]>(url).pipe(
       map(drivers => drivers.map(driver => ({
         ...driver,
   car_color: driver.team_colour ? `#${driver.team_colour}` : getRandomColor(),
@@ -581,7 +723,7 @@ export class Openf1ApiService {
         const endTime = new Date(startTime.getTime() + 10 * 60 * 1000);
         const posUrl = `${this.baseUrl}/position?session_key=${this.sessionKey}&date%3E${encodeURIComponent(startTime.toISOString())}&date%3C${encodeURIComponent(endTime.toISOString())}`;
         
-        return this.http.get<any[]>(posUrl).pipe(
+        return this.makeRateLimitedRequest<any[]>(posUrl).pipe(
           map(positions => {
             if (!positions || positions.length === 0) {
               return { raceStartTime: startTime, isFormationLap: false };
@@ -697,7 +839,7 @@ export class Openf1ApiService {
             }
 
             this.loadingService.show();
-            return this.http.get<any[]>(url).pipe(
+            return this.makeRateLimitedRequest<any[]>(url).pipe(
               tap(data => {
                 this.cache.set(url, data);
                 this.persistApiCache();

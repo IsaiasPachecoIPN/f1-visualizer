@@ -1,4 +1,4 @@
-<div *ngIf="sessionInfo" [ngStyle]="{ padding: '10px', 'font-size': '13px', }">
+<div *ngIf="sessionInfo$ | async as sessionInfo" [ngStyle]="{ padding: '10px', 'font-size': '13px', }">
 
   <div [ngStyle]="{ 'font-size': '13px', 'font-weight': '600', margin: '0 0 8px 0' }">
     <h2>Session Info</h2>

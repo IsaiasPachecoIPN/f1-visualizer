@@ -15,7 +15,7 @@ import { Observable } from 'rxjs';
   ],
 })
 export class ControlsComponent implements OnInit {
-  sessions: any[] = [];
+  sessions$: Observable<any[]>;
   selectedSession: number = 9181;
   speedMultiplier$: Observable<number>;
   isPlaying$: Observable<boolean>;
@@ -37,12 +37,14 @@ export class ControlsComponent implements OnInit {
   ) {
     this.speedMultiplier$ = this.animationControlService.speedMultiplier$;
     this.isPlaying$ = this.animationControlService.isPlaying$;
+    
+    // Initialize sessions observable once in constructor
+    this.sessions$ = this.openf1ApiService.getSessions(2023);
   }
 
   ngOnInit(): void {
-    this.openf1ApiService.getSessions(2023).subscribe(sessions => {
-      this.sessions = sessions;
-    });
+    // No need to subscribe here anymore - the template will use async pipe
+    console.log('🎮 Controls component initialized');
   }
 
   onSessionChange(event: Event): void {

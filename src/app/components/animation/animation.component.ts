@@ -4,6 +4,7 @@ import { Openf1ApiService } from '../../services/openf1-api.service';
 import { AnimationControlService } from '../../services/animation-control.service';
 import { PositionService } from '../../services/position.service';
 import { RaceCommentaryService } from '../../services/race-commentary.service';
+import { LoadingService } from '../../services/loading.service';
 import { CarTooltipComponent } from '../car-tooltip/car-tooltip.component';
 import { Subscription, forkJoin, of, Observable, merge } from 'rxjs';
 import { map, switchMap, shareReplay } from 'rxjs/operators';
@@ -102,6 +103,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     public animationControlService: AnimationControlService,
     private positionService: PositionService,
     private raceCommentaryService: RaceCommentaryService,
+    private loadingService: LoadingService,
     private cdr: ChangeDetectorRef,
     private ngZone: NgZone
   ) {
@@ -189,9 +191,90 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         this.raceStartTime = null;
         this.currentSimulationTime = null;
         this.stopAnimation();
+        // Ensure loading modal is hidden when session changes
+        this.loadingService.hide();
         this.loadAllDriverData();
       })
     );
+  }
+
+  /**
+   * Force repaint of cars - useful for debugging
+   * Can be called from browser console with: document.querySelector('app-animation').forceRepaintCars()
+   */
+  forceRepaintCars(): void {
+    console.log('🔄 Force repainting cars...');
+    
+    // Clear canvas
+    this.ctx.clearRect(0, 0, this.canvas.nativeElement.width, this.canvas.nativeElement.height);
+    
+    // Redraw track
+    this.drawTrack();
+    
+    // Update cars
+    this.updateCarsAtCurrentTime();
+    
+    // Ensure loading modal is hidden after force repaint
+    this.loadingService.hide();
+    
+    console.log('✅ Force repaint completed');
+  }
+
+  /**
+   * Debug method to check component state
+   */
+  debugCarState(): void {
+    console.log('🔍 Car State Debug:');
+    console.log('- Current simulation time:', this.currentSimulationTime?.toISOString());
+    console.log('- Number of drivers:', this.drivers.length);
+    console.log('- Car images loaded:', this.carImages.size);
+    console.log('- Trajectories loaded:', this.trajectories.size);
+    console.log('- Track trajectory points:', this.trackTrajectory.length);
+    console.log('- All location data points:', this.allLocationData.length);
+    console.log('- Canvas dimensions:', this.canvas.nativeElement.width, 'x', this.canvas.nativeElement.height);
+    console.log('- Canvas context:', !!this.ctx);
+    
+    this.drivers.forEach(driver => {
+      const trajectory = this.trajectories.get(driver.driver_number);
+      const carImage = this.carImages.get(driver.driver_number);
+      console.log(`  Driver ${driver.driver_number}: ${trajectory?.length || 0} points, image: ${carImage ? 'loaded' : 'missing'}`);
+    });
+  }
+
+  /**
+   * Initialize car painting when everything is ready
+   * Can be called from browser console to fix missing cars
+   */
+  initializeCarPainting(): void {
+    console.log('🚗 Initializing car painting...');
+    
+    // Check prerequisites
+    if (!this.ctx) {
+      console.error('❌ Canvas context not available');
+      return;
+    }
+    
+    if (!this.currentSimulationTime) {
+      console.error('❌ No current simulation time set');
+      return;
+    }
+    
+    if (this.drivers.length === 0) {
+      console.error('❌ No drivers loaded');
+      return;
+    }
+    
+    if (this.carImages.size === 0) {
+      console.error('❌ No car images loaded');
+      return;
+    }
+    
+    console.log('✅ All prerequisites met, painting cars...');
+    this.forceRepaintCars();
+    
+    // Ensure loading modal is explicitly hidden
+    console.log('🔄 Hiding loading modal after manual car initialization');
+    this.loadingService.hide();
   }
 
   ngOnDestroy(): void {
@@ -317,17 +400,54 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       });
 
       Promise.all(imageLoadPromises).then(() => {
-        console.log('All car images loaded');
+        console.log('🎨 All car images loaded successfully');
         
         // Detect race start time
         this.detectRaceStart();
         
-        // Update cars at the initial time
+        // Clear canvas before initial paint
+        this.ctx.clearRect(0, 0, this.canvas.nativeElement.width, this.canvas.nativeElement.height);
+        
+        // Draw track first
+        this.drawTrack();
+        
+        // Update cars at the initial time - this should make cars visible immediately
+        console.log('🏎️ Painting cars at initial time:', this.currentSimulationTime?.toISOString());
         this.updateCarsAtCurrentTime();
-        // Make sure the time display shows the start time
+        
+        // Ensure the time display shows the start time
         if (this.currentSimulationTime) {
           this.animationControlService.setCurrentTime(this.currentSimulationTime);
         }
+        
+        console.log('✅ Initial car painting completed - cars should be visible now');
+        
+        // Explicitly hide loading modal after car painting is complete
+        console.log('🔄 Hiding loading modal after car painting completion');
+        this.loadingService.hide();
+        
+        // Add a safety mechanism: force repaint after a short delay to ensure cars are visible
+        setTimeout(() => {
+          console.log('🔄 Safety repaint after 1 second...');
+          this.forceRepaintCars();
+          // Ensure loading is hidden in safety timer too
+          this.loadingService.hide();
+        }, 1000);
+        
+        // Another safety check after 3 seconds
+        setTimeout(() => {
+          if (this.carImages.size > 0 && this.drivers.length > 0) {
+            console.log('🔄 Safety repaint after 3 seconds...');
+            this.forceRepaintCars();
+            // Final safety to ensure loading is hidden
+            this.loadingService.hide();
+          }
+        }, 3000);
+      }).catch(error => {
+        console.error('❌ Error loading car images:', error);
+        // Ensure loading modal is hidden even if there's an error
+        console.log('🔄 Hiding loading modal due to error');
+        this.loadingService.hide();
       });
     });
   }
@@ -408,7 +528,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       hasAnimationFrame: !!this.animationFrameId,
       hasSessionStart: !!this.sessionStartTime,
       currentTime: this.currentSimulationTime?.toISOString(),
-      raceStartTime: this.raceStartTime?.toISOString()
+      raceStartTime: this.raceStartTime?.toISOString(),
+      driversCount: this.drivers.length,
+      carImagesLoaded: this.carImages.size
     });
 
     if (this.animationFrameId || !this.sessionStartTime) {
@@ -418,6 +540,10 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     // Start animation from current time - don't auto-jump to race start
     // Let the formation lap play naturally from the beginning
     console.log('▶️ Starting animation from current time:', this.currentSimulationTime?.toISOString());
+
+    // Ensure cars are painted before starting animation
+    console.log('🎨 Ensuring cars are painted before animation starts...');
+    this.forceRepaintCars();
 
     this.isPaused = false;
     this.lastUpdateTime = performance.now();
@@ -589,17 +715,38 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateCarsAtCurrentTime(): void {
-    if (!this.currentSimulationTime) return;
+    if (!this.currentSimulationTime) {
+      console.log('❌ Cannot update cars: no current simulation time');
+      return;
+    }
 
+    console.log('🏎️ Updating cars at time:', this.currentSimulationTime.toISOString());
+    console.log('🏎️ Number of drivers to paint:', this.drivers.length);
+    console.log('🏎️ Number of car images loaded:', this.carImages.size);
+
+    let carsPainted = 0;
+    
     this.drivers.forEach(driver => {
       const driverTrajectory = this.trajectories.get(driver.driver_number);
+      const carImage = this.carImages.get(driver.driver_number);
+      
+      console.log(`🏎️ Driver ${driver.driver_number}: trajectory=${driverTrajectory?.length || 0} points, image=${carImage ? 'loaded' : 'missing'}`);
+      
       if (driverTrajectory && driverTrajectory.length > 0) {
         const position = this.findPositionAtTime(driverTrajectory, this.currentSimulationTime!);
         if (position) {
+          console.log(`🎨 Painting car for driver ${driver.driver_number} at position x=${position.x}, y=${position.y}`);
           this.drawCar(position, driver.driver_number);
+          carsPainted++;
+        } else {
+          console.log(`⚠️ No position found for driver ${driver.driver_number} at current time`);
         }
+      } else {
+        console.log(`⚠️ No trajectory data for driver ${driver.driver_number}`);
       }
     });
+
+    console.log(`✅ Painted ${carsPainted} cars out of ${this.drivers.length} drivers`);
 
     // If tooltip is locked, keep it anchored near the driver's number circle
     if (this.tooltipLockedDriver !== null && this.showTooltip) {
@@ -886,11 +1033,16 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
   drawCar(position: any, driverNumber: number): void {
     const carImage = this.carImages.get(driverNumber);
-    if (!carImage) return;
+    if (!carImage) {
+      console.log(`❌ Cannot draw car for driver ${driverNumber}: no car image loaded`);
+      return;
+    }
 
     const { scale, offsetX, offsetY } = this.getScaleAndOffset();
     const x = position.x * scale + offsetX;
     const y = position.y * scale + offsetY;
+
+    console.log(`🎨 Drawing car ${driverNumber} at canvas position x=${x.toFixed(1)}, y=${y.toFixed(1)} (world: ${position.x}, ${position.y})`);
 
     // Find the driver to get team color
     const driver = this.drivers.find(d => d.driver_number === driverNumber);
