@@ -1,5 +1,8 @@
-<div *ngIf="sessionInfo" [ngStyle]="{ padding: '10px' }">
-  <h3>{{ sessionInfo.meeting_name }}</h3>
+<div *ngIf="sessionInfo" [ngStyle]="{ padding: '10px', 'font-size': '13px', }">
+
+  <div [ngStyle]="{ 'font-size': '13px', 'font-weight': '600', margin: '0 0 8px 0' }">
+    <h2>Session Info</h2>
+  </div>
   <p><strong>Circuit:</strong> {{ sessionInfo.circuit_short_name }}</p>
   <p><strong>Location:</strong> {{ sessionInfo.location }}</p>
   <p><strong>Date:</strong> {{ sessionInfo.date_start | date: 'longDate' }}</p>

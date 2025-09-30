@@ -1,7 +1,7 @@
-<div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '16px' , padding: '10px'}">
+<div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '16px' , padding: '0px 10px'}">
   <div [ngStyle]="{ display: 'flex', gap: '8px', 'align-items': 'center' }">
     <!-- Start/Pause Button -->
-    <button 
+    <!-- <button 
         z-button 
         (click)="onStartPause()"
         [title]="(isPlaying$ | async) ? 'Pause simulation' : 'Start simulation (jumps to race beginning)'"
@@ -16,9 +16,9 @@
         <span [ngStyle]="{ 'font-size': '14px' }" *ngIf="isPlaying$ | async">⏸</span>
         <span>{{ (isPlaying$ | async) ? 'Pause' : 'Start' }}</span>
     </button>
-    
+     -->
     <!-- Restart Button -->
-    <button 
+    <!-- <button 
         z-button 
         variant="outline"
         (click)="onRestart()"
@@ -32,14 +32,14 @@
         }">
         <span [ngStyle]="{ 'font-size': '14px' }">↻</span>
         <span>Restart</span>
-    </button>
+    </button> -->
   </div>
   
-  <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
+  <!-- <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
     <z-switch (checkChange)="onToggleShowAllDrivers()">Show All Drivers</z-switch>
-  </div>
+  </div> -->
   
-  <div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '8px' }">
+  <!-- <div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '8px' }">
     <label>Simulation Speed:</label>
     <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
       <button z-button size="sm" (click)="decreaseSpeed()" [disabled]="(speedMultiplier$ | async) === speedOptions[0].value">−</button>
@@ -50,14 +50,18 @@
       </select>
       <button z-button size="sm" (click)="increaseSpeed()" [disabled]="(speedMultiplier$ | async) === speedOptions[speedOptions.length - 1].value">+</button>
     </div>
-  </div>
+  </div> -->
   
-  <div [ngStyle]="{ display: 'flex', 'align-items': 'center', gap: '8px' }">
-    <label for="session-select">Session:</label>
-    <select id="session-select" [ngModel]="selectedSession" (change)="onSessionChange($event)">
-      <option *ngFor="let session of sessions" [value]="session.session_key">
-        {{session.circuit_short_name}} - {{session.session_name}}
-      </option>
-    </select>
+  <div [ngStyle]="{ display: 'flex', 'flex-direction': 'column', gap: '4px'}">
+    <label for="session-select" [ngStyle]="{ 'font-size': '13px', 'font-weight': '600', margin: '0 0 8px 0'}">Choose Session</label>
+    <div [ngStyle]="{ position: 'relative', display: 'flex', 'align-items': 'center' }">
+      <select id="session-select" [ngModel]="selectedSession" (change)="onSessionChange($event)"
+        [ngStyle]="{ width: '100%', 'max-width': '260px', padding: '6px 10px', 'border-radius': '8px', 'font-size': '13px', 'background': '#111', color: '#fff', border: '1px solid #333', 'font-family': 'inherit' }">
+        <option disabled value="" *ngIf="!selectedSession">Select a session…</option>
+        <option *ngFor="let session of sessions" [value]="session.session_key" [title]="session.circuit_short_name + ' - ' + session.session_name">
+          {{session.circuit_short_name}} - {{session.session_name}}
+        </option>
+      </select>
+    </div>
   </div>
 </div>

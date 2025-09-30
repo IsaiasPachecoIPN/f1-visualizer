@@ -362,7 +362,8 @@ export class Openf1ApiService {
     const driversObservable = this.http.get<any[]>(url).pipe(
       map(drivers => drivers.map(driver => ({
         ...driver,
-        car_color: driver.team_colour ? `#${driver.team_colour}` : getRandomColor()
+  car_color: driver.team_colour ? `#${driver.team_colour}` : getRandomColor(),
+  headshot_url: driver.headshot_url ? driver.headshot_url : 'not_found_driver.png'
       }))),
       tap(data => {
   this.driverDataCache.set(url, data);

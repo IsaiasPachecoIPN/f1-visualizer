@@ -24,7 +24,7 @@ import { Observable } from 'rxjs';
       padding: 16px;
       margin: 10px 0;
       color: white;
-      font-family: 'Courier New', monospace;
+  font-family: inherit;
     }
 
     .race-time h3 {
@@ -36,12 +36,12 @@ import { Observable } from 'rxjs';
     }
 
     .current-time {
-      font-size: 18px;
-      font-weight: bold;
-      color: #00ff00;
-      text-align: center;
-      margin-bottom: 8px;
-      letter-spacing: 1px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #00ff88;
+  text-align: center;
+  margin-bottom: 8px;
+  letter-spacing: 1px;
     }
 
     .speed-indicator {

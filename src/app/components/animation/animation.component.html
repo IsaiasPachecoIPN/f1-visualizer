@@ -1,8 +1,31 @@
 <div class="animation-container">
+  <!-- Timer (top-left) -->
+  <div class="hud-timer" *ngIf="(currentTime$ | async) as currentTime">
+    {{ currentTime | date:'HH:mm:ss':'UTC' }} <span class="tz">UTC</span>
+  </div>
+
+  <!-- Session Name (top-center) -->
+  <div class="hud-session" *ngIf="(sessionName$ | async) as sessionName" [title]="sessionName">
+    {{ sessionName }}
+  </div>
+
+  <!-- Controls (top-right, left of zoom buttons) -->
+  <div class="hud-controls">
+    <button class="hud-btn" (click)="playPause()" [title]="getIsPlaying() ? 'Pause' : 'Play'">
+      {{ getIsPlaying() ? '⏸' : '▶' }}
+    </button>
+    <button class="hud-btn" (click)="restart()" title="Restart">↻</button>
+    <button class="hud-btn" (click)="decreaseSpeed()" title="Slower">−</button>
+    <div class="speed-display">{{ getSpeedMultiplier() }}x</div>
+    <button class="hud-btn" (click)="increaseSpeed()" title="Faster">+</button>
+    <button class="hud-btn toggle" (click)="animationControlService.toggleShowAllDrivers()" title="Toggle drivers">👥</button>
+  </div>
+
+  <!-- Existing zoom buttons -->
   <div class="zoom-controls">
     <button type="button" (click)="zoomIn()" title="Zoom In">🔍+</button>
     <button type="button" (click)="zoomOut()" title="Zoom Out">🔍-</button>
-    <button type="button" (click)="resetZoom()" title="Reset Zoom">⌂</button>
+  <button type="button" (click)="resetZoom()" title="Reset Zoom">⌂</button>
   </div>
   <canvas #animationCanvas></canvas>
 </div>
@@ -51,5 +74,81 @@ canvas {
   width: 100%;
   height: 100%;
   background: #f8f9fa;
+}
+
+/* HUD additions */
+.hud-timer {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0,0,0,0.6);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #00ff88;
+  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  backdrop-filter: blur(4px);
+}
+.hud-timer .tz { color: #fff; font-size: 12px; opacity: 0.8; }
+
+.hud-controls {
+  position: absolute;
+  top: 10px;
+  right: 170px; /* leave space for zoom */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,0,0,0.55);
+  padding: 6px 10px;
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+}
+
+.hud-btn {
+  background: rgba(255,255,255,0.9);
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color .2s, transform .15s;
+  font-family: inherit;
+}
+.hud-btn:hover { background: #fff; }
+.hud-btn:active { transform: scale(.9); }
+.hud-btn.toggle { font-size: 16px; }
+
+.speed-display {
+  min-width: 40px;
+  text-align: center;
+  font-weight: 600;
+  color: #fff;
+  font-size: 13px;
+}
+.hud-session {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 50%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(0,0,0,0.55);
+  padding: 6px 14px 6px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #ffffff;
+  letter-spacing: .5px;
+  backdrop-filter: blur(4px);
 }
 </style>
