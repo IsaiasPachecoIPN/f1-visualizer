@@ -1,28 +1,23 @@
-<div class="app-container">
+<div class="app-container" [class.drawer-open]="drawerOpen() && useDrawer()">
   <header class="app-header">
+    <button z-button zType="ghost" zSize="sm" class="hamburger" (click)="toggleDrawer()" *ngIf="useDrawer()">
+      <span class="icon-menu text-xl"></span>
+    </button>
     <h1>F1 Track Visualizer</h1>
   </header>
 
-  <div class="content-wrapper">
+  <!-- Desktop / Large layout -->
+  <div class="content-wrapper" *ngIf="!useDrawer(); else mobileLayout">
     <aside class="left-panel">
       <div class="info-card">
         <z-badge [ngStyle]="{margin: '10px 0'}">Drivers</z-badge>
         <app-drivers></app-drivers>
       </div>
       <div class="info-card">
-        <z-badge [ngStyle]="{margin: '10px 0'}">Race info</z-badge>
+        <z-badge [ngStyle]="{margin: '10px 0'}">Race Info</z-badge>
         <app-controls></app-controls>
-        <!-- <z-badge [ngStyle]="{margin: '10px 0'}">Race Info</z-badge> -->
         <app-race-info></app-race-info>
       </div>
-      <!-- <div class="info-card">
-        <z-badge [ngStyle]="{margin: '10px 0'}">Race Time</z-badge>
-        <app-time-display></app-time-display>
-      </div> -->
-      <!-- <div class="info-card">
-        <z-badge [ngStyle]="{margin: '10px 0'}">Race Info</z-badge>
-        <app-race-info></app-race-info>
-      </div> -->
       <div class="info-card">
         <z-badge [ngStyle]="{margin: '10px 0'}">Live Positions</z-badge>
         <app-positions></app-positions>
@@ -39,6 +34,41 @@
       </div>
     </main>
   </div>
+
+  <!-- Mobile / Tablet layout -->
+  <ng-template #mobileLayout>
+    <div class="responsive-wrapper">
+      <!-- Simulated Drawer using dialog base styles -->
+      <div class="drawer-mask" *ngIf="drawerOpen()" (click)="closeDrawer()"></div>
+      <div class="drawer-panel" [class.open]="drawerOpen()">
+        <div class="drawer-header">
+          <h3 class="drawer-title">Race Panels</h3>
+          <button z-button zType="ghost" zSize="sm" (click)="closeDrawer()"><span class="icon-x"></span></button>
+        </div>
+        <z-accordion zType="single" [zDefaultValue]="'positions'" class="drawer-accordion">
+          <z-accordion-item zTitle="Race Positions" zValue="positions">
+            <app-positions></app-positions>
+          </z-accordion-item>
+          <z-accordion-item zTitle="Drivers" zValue="drivers">
+            <app-drivers></app-drivers>
+          </z-accordion-item>
+          <z-accordion-item zTitle="Race Info" zValue="raceinfo">
+            <app-controls></app-controls>
+            <app-race-info></app-race-info>
+          </z-accordion-item>
+        </z-accordion>
+      </div>
+
+      <main class="main-content mobile">
+        <div class="main-animation">
+          <app-animation></app-animation>
+        </div>
+        <z-card class="mobile-comments" zTitle="Comments">
+          <app-comments></app-comments>
+        </z-card>
+      </main>
+    </div>
+  </ng-template>
 
   <footer class="app-footer">
     <p>&copy; 2025 Lexis Nexis - Motorsport Analytics</p>
