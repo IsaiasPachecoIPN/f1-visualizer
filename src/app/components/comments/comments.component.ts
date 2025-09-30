@@ -10,7 +10,7 @@ import { RaceCommentaryService, RaceComment } from '../../services/race-commenta
   templateUrl: './comments.component.html',
   styles: [`
     .comments-container {
-      max-height: 400px;
+      max-height: 200px;
       overflow-y: auto;
       padding: 10px;
     }

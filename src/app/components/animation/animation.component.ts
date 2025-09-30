@@ -34,6 +34,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   private carImages = new Map<number, HTMLImageElement>();
   private trackTrajectory: any[] = []; // For drawing the track outline
   private allLocationData: any[] = []; // Store all location data from the API call
+  private trackLocked = false; // Prevent track from changing after initial load
 
   private animationFrameId: number | null = null;
   private currentFrame = 0;
@@ -147,7 +148,6 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
       // Ensure the animation control service is immediately updated with the start time
       this.animationControlService.setCurrentTime(this.currentSimulationTime);
     });
-
     this.openf1ApiService.getDrivers().pipe(
       switchMap(drivers => {
         if (this.showAllDrivers) {
@@ -161,8 +161,21 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
           return of([]);
         }
 
-        // Use the new single API call to get ALL drivers' location data
-        return this.openf1ApiService.getAllDriversLocationData();
+        // Fetch half-race trajectory for one driver (always driver_number 1 by default) for track outline (cached)
+        const trackDriverNumber = this.singleDriverNumber; // can be adjusted if needed
+        return this.openf1ApiService.getHalfRaceTrackDriverData(trackDriverNumber).pipe(
+          switchMap(trackData => {
+            // Set track trajectory immediately
+            if (!this.trackLocked) {
+              this.trackTrajectory = trackData.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              this.trackLocked = true; // Lock after first assignment
+              console.log(`🛣️ Track trajectory points (half race, locked): ${this.trackTrajectory.length}`);
+              this.drawTrack();
+            }
+            // Then continue with normal all-driver initial data load (first chunk only)
+            return this.openf1ApiService.getAllDriversLocationData();
+          })
+        );
       })
     ).subscribe(allLocationData => {
       if (allLocationData.length === 0) {
@@ -185,15 +198,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         console.log(`🏎️ Driver ${driver.driver_number} (${driver.name_acronym || driver.broadcast_name}): ${driverLocations.length} location points`);
       });
 
-      // Use the first available driver's trajectory for track outline
-      if (this.drivers.length > 0) {
-        const firstDriverTrajectory = this.trajectories.get(this.drivers[0].driver_number);
-        if (firstDriverTrajectory && firstDriverTrajectory.length > 0) {
-          this.trackTrajectory = firstDriverTrajectory;
-          console.log(`🏁 Using driver ${this.drivers[0].driver_number} trajectory for track outline (${firstDriverTrajectory.length} points)`);
-          this.drawTrack();
-        }
-      }
+  // Track already set from half-race cached data; do not override here.
 
       const imageLoadPromises = this.drivers.map(driver => {
         return new Promise<void>(resolve => {
@@ -455,13 +460,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
             console.log(`🏎️ Updated driver ${driver.driver_number}: ${driverLocations.length} total points`);
           });
 
-          // Update track trajectory if needed (use first driver's updated trajectory)
-          if (this.drivers.length > 0) {
-            const firstDriverTrajectory = this.trajectories.get(this.drivers[0].driver_number);
-            if (firstDriverTrajectory && firstDriverTrajectory.length > 0) {
-              this.trackTrajectory = firstDriverTrajectory;
-            }
-          }
+          // Do NOT update trackTrajectory after it's locked
         }
       });
   }
@@ -492,13 +491,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         console.log(`🏎️ Reset driver ${driver.driver_number}: ${driverLocations.length} location points`);
       });
 
-      // Reset track trajectory
-      if (this.drivers.length > 0) {
-        const firstDriverTrajectory = this.trajectories.get(this.drivers[0].driver_number);
-        if (firstDriverTrajectory && firstDriverTrajectory.length > 0) {
-          this.trackTrajectory = firstDriverTrajectory;
-        }
-      }
+  // Preserve existing locked track; don't overwrite
     });
   }
 

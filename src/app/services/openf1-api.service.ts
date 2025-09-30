@@ -1,8 +1,9 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of, forkJoin } from 'rxjs';
+import { Observable, of } from 'rxjs';
 import { tap, map, shareReplay, finalize, switchMap } from 'rxjs/operators';
 import { LoadingService } from './loading.service';
+import { IndexedDbCacheService } from './indexeddb-cache.service';
 
 // Helper function to generate a random color
 function getRandomColor(): string {
@@ -19,19 +20,44 @@ function getRandomColor(): string {
 })
 export class Openf1ApiService {
   private baseUrl = 'https://api.openf1.org/v1';
-  private cache: Map<string, any>;
-  private driverDataCache: Map<string, any[]>;
+  private cache: Map<string, any> = new Map();
+  private driverDataCache: Map<string, any[]> = new Map();
   private driverObservableCache = new Map<string, Observable<any[]>>();
   private sessionKey: number = 9181;
-  
-  // Dynamic loading properties
-  private loadedDataSegments: Map<string, any[]> = new Map(); // key: "start-end", value: data
-  private sessionStartTime: Date | null = null;
-  private readonly CHUNK_DURATION_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+  private halfRaceTrackCacheKeyPrefix = 'halfRaceTrack';
 
-  constructor(private http: HttpClient, private loadingService: LoadingService) {
-    this.cache = new Map(JSON.parse(sessionStorage.getItem('apiCache') || '[]'));
-    this.driverDataCache = new Map(JSON.parse(sessionStorage.getItem('driverApiCache') || '[]'));
+  // Dynamic loading properties
+  private loadedDataSegments: Map<string, any[]> = new Map();
+  private sessionStartTime: Date | null = null;
+  private readonly CHUNK_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+  private chunkObservableCache = new Map<string, Observable<any[]>>(); // in-flight chunk loads
+  private loadingChunkKeys = new Set<string>();
+
+  constructor(
+    private http: HttpClient,
+    private loadingService: LoadingService,
+    private idb: IndexedDbCacheService
+  ) {
+    this.hydrateCaches();
+  }
+
+  private async hydrateCaches() {
+    try {
+      const apiEntries = await this.idb.get<[string, any][]>('apiCache', 'entries');
+      if (apiEntries) this.cache = new Map(apiEntries);
+      const driverEntries = await this.idb.get<[string, any][]>('driverApiCache', 'entries');
+      if (driverEntries) this.driverDataCache = new Map(driverEntries);
+    } catch {
+      // ignore hydration errors
+    }
+  }
+
+  private persistApiCache() {
+    this.idb.set('apiCache', 'entries', Array.from(this.cache.entries()));
+  }
+
+  private persistDriverCache() {
+    this.idb.set('driverApiCache', 'entries', Array.from(this.driverDataCache.entries()));
   }
 
   setSessionKey(sessionKey: number) {
@@ -42,8 +68,11 @@ export class Openf1ApiService {
       this.driverObservableCache.clear();
       this.loadedDataSegments.clear();
       this.sessionStartTime = null;
-      sessionStorage.removeItem('apiCache');
-      sessionStorage.removeItem('driverApiCache');
+      this.idb.clearStore('apiCache');
+      this.idb.clearStore('driverApiCache');
+      this.idb.clearStore('halfRaceTrack');
+  this.chunkObservableCache.clear();
+  this.loadingChunkKeys.clear();
     }
   }
 
@@ -56,8 +85,8 @@ export class Openf1ApiService {
     this.loadingService.show();
     return this.http.get<any[]>(url).pipe(
       tap(data => {
-        this.cache.set(url, data);
-        sessionStorage.setItem('apiCache', JSON.stringify(Array.from(this.cache.entries())));
+  this.cache.set(url, data);
+  this.persistApiCache();
       }),
       finalize(() => this.loadingService.hide())
     );
@@ -77,8 +106,8 @@ export class Openf1ApiService {
     this.loadingService.show();
     return this.http.get<any[]>(url).pipe(
       tap(data => {
-        this.cache.set(url, data);
-        sessionStorage.setItem('apiCache', JSON.stringify(Array.from(this.cache.entries())));
+  this.cache.set(url, data);
+  this.persistApiCache();
       }),
       finalize(() => this.loadingService.hide())
     );
@@ -99,7 +128,7 @@ export class Openf1ApiService {
     return this.http.get<any[]>(url).pipe(
       tap(data => {
         this.cache.set(url, data);
-        sessionStorage.setItem('apiCache', JSON.stringify(Array.from(this.cache.entries())));
+          this.persistApiCache();
       }),
       finalize(() => this.loadingService.hide())
     );
@@ -141,6 +170,12 @@ export class Openf1ApiService {
       return of(this.getCombinedLoadedData());
     }
 
+    // If there's an in-flight observable for this chunk, reuse it
+    if (this.chunkObservableCache.has(chunkKey)) {
+      console.log(`⌛ Reusing in-flight chunk request ${chunkIndex}`);
+      return this.chunkObservableCache.get(chunkKey)!;
+    }
+
     const startStr = chunkStartTime.toISOString();
     const endStr = chunkEndTime.toISOString();
     
@@ -168,21 +203,28 @@ export class Openf1ApiService {
       console.log('🌐 Silently fetching chunk data in background...');
     }
     
-    return this.http.get<any[]>(url).pipe(
+    const obs = this.http.get<any[]>(url).pipe(
       tap(chunkData => {
         const loadingText = showLoading ? 'Successfully loaded' : 'Background loaded';
         console.log(`✅ ${loadingText} chunk ${chunkIndex}: ${chunkData.length} location data points!`);
         this.cache.set(url, chunkData);
         this.loadedDataSegments.set(chunkKey, chunkData);
-        sessionStorage.setItem('apiCache', JSON.stringify(Array.from(this.cache.entries())));
+        this.persistApiCache();
       }),
       map(() => this.getCombinedLoadedData()),
       finalize(() => {
         if (showLoading) {
           this.loadingService.hide();
         }
-      })
+        this.chunkObservableCache.delete(chunkKey);
+        this.loadingChunkKeys.delete(chunkKey);
+      }),
+      shareReplay(1)
     );
+
+    this.chunkObservableCache.set(chunkKey, obs);
+    this.loadingChunkKeys.add(chunkKey);
+    return obs;
   }
 
   /**
@@ -205,9 +247,11 @@ export class Openf1ApiService {
       const nextChunk = currentChunk + 1;
       const nextChunkKey = `${nextChunk}`;
       
-      if (!this.loadedDataSegments.has(nextChunkKey)) {
+      if (!this.loadedDataSegments.has(nextChunkKey) && !this.loadingChunkKeys.has(nextChunkKey)) {
         console.log(`🔄 Simulation is 80% through chunk ${currentChunk}, loading next chunk ${nextChunk} in background...`);
         return this.loadDataChunk(nextChunk, false); // false = background loading without loading modal
+      } else if (this.chunkObservableCache.has(nextChunkKey)) {
+        return this.chunkObservableCache.get(nextChunkKey)!;
       }
     }
 
@@ -256,6 +300,8 @@ export class Openf1ApiService {
     console.log('🧹 Clearing all loaded data segments');
     this.loadedDataSegments.clear();
     this.sessionStartTime = null;
+  this.chunkObservableCache.clear();
+  this.loadingChunkKeys.clear();
   }
 
   getSessionInfo(): Observable<any> {
@@ -267,8 +313,8 @@ export class Openf1ApiService {
     this.loadingService.show();
     return this.http.get<any>(url).pipe(
       tap(data => {
-        this.cache.set(url, data);
-        sessionStorage.setItem('apiCache', JSON.stringify(Array.from(this.cache.entries())));
+  this.cache.set(url, data);
+  this.persistApiCache();
       }),
       finalize(() => this.loadingService.hide())
     );
@@ -295,8 +341,8 @@ export class Openf1ApiService {
     this.loadingService.show();
     return this.http.get<any[]>(url).pipe(
       tap(data => {
-        this.cache.set(url, data);
-        sessionStorage.setItem('apiCache', JSON.stringify(Array.from(this.cache.entries())));
+  this.cache.set(url, data);
+  this.persistApiCache();
       }),
       finalize(() => this.loadingService.hide())
     );
@@ -319,8 +365,8 @@ export class Openf1ApiService {
         car_color: driver.team_colour ? `#${driver.team_colour}` : getRandomColor()
       }))),
       tap(data => {
-        this.driverDataCache.set(url, data);
-        sessionStorage.setItem('driverApiCache', JSON.stringify(Array.from(this.driverDataCache.entries())));
+  this.driverDataCache.set(url, data);
+  this.persistDriverCache();
         this.driverObservableCache.delete(url);
       }),
       shareReplay(1),
@@ -329,5 +375,57 @@ export class Openf1ApiService {
 
     this.driverObservableCache.set(url, driversObservable);
     return driversObservable;
+  }
+
+  /**
+   * Fetches only the first HALF of the race location data for a single driver.
+   * This is used exclusively to build a full track outline while minimizing data volume.
+   * Result is cached in sessionStorage so it's fetched only once per session & driver.
+   * @param driverNumber Driver number to use for track outline (e.g. 1)
+   */
+  getHalfRaceTrackDriverData(driverNumber: number): Observable<any[]> {
+    const cacheKey = `${this.halfRaceTrackCacheKeyPrefix}_${this.sessionKey}_${driverNumber}`;
+    return new Observable<any[]>(observer => {
+      this.idb.get<any[]>('halfRaceTrack', cacheKey).then((stored: any[] | undefined) => {
+        if (stored) {
+          observer.next(stored);
+          observer.complete();
+          return;
+        }
+
+        this.getSessionTimeBounds().pipe(
+          switchMap(({ startTime, endTime }) => {
+            const halfTime = new Date(startTime.getTime() + (endTime.getTime() - startTime.getTime()) / 2);
+            const startStr = startTime.toISOString();
+            const halfStr = halfTime.toISOString();
+            const url = `${this.baseUrl}/location?session_key=${this.sessionKey}&driver_number=${driverNumber}&date%3E${encodeURIComponent(startStr)}&date%3C${encodeURIComponent(halfStr)}`;
+
+            if (this.cache.has(url)) {
+              const data = this.cache.get(url);
+              this.idb.set('halfRaceTrack', cacheKey, data);
+              observer.next(data);
+              observer.complete();
+              return of([]);
+            }
+
+            this.loadingService.show();
+            return this.http.get<any[]>(url).pipe(
+              tap(data => {
+                this.cache.set(url, data);
+                this.persistApiCache();
+                this.idb.set('halfRaceTrack', cacheKey, data);
+                console.log(`🛣️ Loaded half-race track trajectory for driver ${driverNumber}: ${data.length} points`);
+              }),
+              finalize(() => this.loadingService.hide())
+            );
+          })
+        ).subscribe(apiData => {
+          if (Array.isArray(apiData) && apiData.length) {
+            observer.next(apiData);
+          }
+          observer.complete();
+        });
+      });
+    });
   }
 }
