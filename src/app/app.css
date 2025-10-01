@@ -286,7 +286,33 @@ h2 {
 .roadmap ul { columns:2; column-gap:2rem; }
 .quick-tips { display:flex; flex-wrap:wrap; gap:.5rem .75rem; list-style:none; margin:.75rem 0 0; padding:0; }
 .quick-tips li { background:rgba(255,255,255,.08); padding:.4rem .6rem; border-radius:8px; font-size:.7rem; letter-spacing:.5px; text-transform:uppercase; font-weight:600; }
-.help-footer { margin-top:1rem; display:flex; justify-content:flex-end; }
+.help-footer { margin-top:1rem; display:flex; justify-content:flex-end; flex-direction: column; gap: 12px; align-items: center; }
+
+.car-size-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.car-size-preview {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.car-preview-svg { display: block; filter: drop-shadow(0 0 2px rgba(0,0,0,0.4)); }
+.car-size-svg-wrapper { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; transform-origin: center center; }
+.car-size-svg-wrapper svg { max-width: 100%; max-height: 100%; display: block; }
+.car-size-control button {
+  min-width: 34px;
+}
+.car-size-value {
+  min-width: 120px;
+  text-align: center;
+}
 
 @media (max-width: 860px) { .roadmap ul { columns:1; } }
 @media (max-width: 640px) { .help-dialog { padding:1rem 1rem 1.15rem; border-radius:18px; } .help-header h2 { font-size:1.15rem; } }

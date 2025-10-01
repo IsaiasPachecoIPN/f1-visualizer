@@ -180,6 +180,14 @@
       </z-accordion>
     </div>
     <footer class="help-footer">
+      <div class="car-size-control">
+        <div class="car-size-preview" [style.width.px]="carPreviewSize()*2" [style.height.px]="carPreviewSize()*1.2">
+          <div class="car-size-svg-wrapper" [style.transform]="'scale(' + (carSizeScale()) + ')'" [innerHTML]="sanitizedCarSvg"></div>
+        </div>
+        <button z-button zSize="sm" (click)="decreaseCarSize()" aria-label="Decrease car size">−</button>
+        <span class="car-size-value">Car Size: {{ carSizeScale() | number:'1.0-2' }}x</span>
+        <button z-button zSize="sm" (click)="increaseCarSize()" aria-label="Increase car size">+</button>
+      </div>
       <button z-button zSize="sm" (click)="closeHelp()">Close</button>
     </footer>
   </div>

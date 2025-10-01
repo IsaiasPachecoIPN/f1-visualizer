@@ -1,4 +1,6 @@
 import { Component, HostListener, computed, signal } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { CAR_SVG } from './shared/utils/car-model';
 import { RouterOutlet } from '@angular/router';
 import { AnimationComponent } from './components/animation/animation.component';
 import { RaceInfoComponent } from './components/race-info/race-info.component';
@@ -13,6 +15,7 @@ import { ZardAccordionItemComponent } from '@shared/components/accordion/accordi
 import { ZardCardComponent } from '@shared/components/card/card.component';
 import { CommonModule } from '@angular/common';
 import { LoadingComponent } from './components/loading/loading.component';
+import { AnimationControlService } from './services/animation-control.service';
 
 @Component({
   selector: 'app-root',
@@ -49,6 +52,17 @@ export class App {
   // Help modal state
   helpOpen = signal(false);
 
+  constructor(private animationControl: AnimationControlService, private sanitizer: DomSanitizer) {}
+  carSizeScale = signal(1);
+  private syncCarSizeSub?: any;
+  ngOnInit() {
+    this.carSizeScale.set(this.animationControl.getCarSizeScale());
+    this.syncCarSizeSub = this.animationControl.carSizeScale$.subscribe(v => this.carSizeScale.set(v));
+  }
+  get sanitizedCarSvg(): SafeHtml {
+    // Scale via wrapping container; do not alter intrinsic SVG viewBox
+    return this.sanitizer.bypassSecurityTrustHtml(CAR_SVG);
+  }
   openHelp() { this.helpOpen.set(true); }
   closeHelp() { this.helpOpen.set(false); }
   toggleHelp() { this.helpOpen.update(v => !v); }
@@ -61,6 +75,10 @@ export class App {
   closeDrawer() {
     if (this.drawerOpen()) this.drawerOpen.set(false);
   }
+
+  increaseCarSize() { this.animationControl.adjustCarSizeScale(0.1); }
+  decreaseCarSize() { this.animationControl.adjustCarSizeScale(-0.1); }
+  carPreviewSize(): number { return Math.round(24 * this.carSizeScale()); }
 
   @HostListener('window:resize')
   onResize() {
@@ -75,4 +93,6 @@ export class App {
       this.closeHelp();
     }
   }
+
+  ngOnDestroy() { if (this.syncCarSizeSub) this.syncCarSizeSub.unsubscribe(); }
 }

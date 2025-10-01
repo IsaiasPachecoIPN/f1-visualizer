@@ -24,6 +24,8 @@ export class AnimationControlService {
   // Race start information
   private raceStartTimeSubject = new BehaviorSubject<Date | null>(null);
   private isFormationLapSubject = new BehaviorSubject<boolean>(false);
+  // Global car size scale (1 = default 24px base). Clamp between 0.5 and 3.
+  private carSizeScaleSubject = new BehaviorSubject<number>(1);
 
   start$ = this.startSubject.asObservable();
   pause$ = this.pauseSubject.asObservable();
@@ -39,6 +41,7 @@ export class AnimationControlService {
   isPlaying$ = this.isPlayingSubject.asObservable();
   raceStartTime$ = this.raceStartTimeSubject.asObservable();
   isFormationLap$ = this.isFormationLapSubject.asObservable();
+  carSizeScale$ = this.carSizeScaleSubject.asObservable();
 
   start() {
     this.isPlayingSubject.next(true);
@@ -104,5 +107,19 @@ export class AnimationControlService {
 
   getIsFormationLap(): boolean {
     return this.isFormationLapSubject.value;
+  }
+
+  // Car size scale API
+  setCarSizeScale(scale: number) {
+    const clamped = Math.min(3, Math.max(0.5, parseFloat(scale as any)));
+    this.carSizeScaleSubject.next(Number(clamped.toFixed(2)));
+  }
+
+  adjustCarSizeScale(delta: number) {
+    this.setCarSizeScale(this.getCarSizeScale() + delta);
+  }
+
+  getCarSizeScale(): number {
+    return this.carSizeScaleSubject.value;
   }
 }
