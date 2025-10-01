@@ -3,6 +3,12 @@
   <div class="hud-timer" *ngIf="(currentTime$ | async) as currentTime">
     {{ currentTime | date:'HH:mm:ss':'UTC' }} <span class="tz">UTC</span>
   </div>
+  <!-- Lap HUD (wide screens only) -->
+  <div class="hud-lap" *ngIf="(currentLapInfo$ | async) as lap">
+    <div class="lap-item"><strong>Lap</strong> {{ lap.lapNumber || '?' }}</div>
+    <div class="lap-item" *ngIf="lap.lapDuration as ld">Time {{ ld | number:'1.2-2' }}s</div>
+    <div class="lap-item" *ngIf="lap.speedTrap as st">Trap {{ st }} km/h</div>
+  </div>
 
   <!-- In-canvas HUD (hidden when detached HUD active via global CSS override) -->
   <div class="hud-responsive-group">
@@ -35,14 +41,16 @@
 </div>
 
 <style>
+/* Responsive fill: parent (.main-animation) supplies padding/border */
 .animation-container {
-  position: relative;
+  position: absolute; /* occupy the padded inner box of main-animation */
+  inset: 0;
   width: 100%;
   height: 100%;
-  min-height: 400px;
-  border: 1px solid #ccc;
-  border-radius: 8px;
+  min-height: 0; /* allow flex parent control */
   overflow: hidden;
+  border: none;
+  border-radius: 8px; /* inherit visual boundary from parent */
 }
 
 .zoom-controls {
@@ -78,6 +86,8 @@ canvas {
   width: 100%;
   height: 100%;
   background: #f8f9fa;
+  /* Avoid blurriness on resize while animation running */
+  image-rendering: optimizeSpeed;
 }
 
 /* HUD additions */
@@ -98,6 +108,29 @@ canvas {
   backdrop-filter: blur(4px);
 }
 .hud-timer .tz { color: #fff; font-size: 12px; opacity: 0.8; }
+
+/* Lap HUD */
+.hud-lap {
+  position: absolute;
+  top: 10px;
+  left: 160px; /* offset from timer */
+  background: rgba(0,0,0,0.6);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  backdrop-filter: blur(4px);
+  letter-spacing: .5px;
+}
+.hud-lap .lap-item { white-space: nowrap; }
+
+@media (max-width: 1706px) {
+  .hud-lap { display: none !important; }
+}
 
 .hud-controls {
   position: absolute;

@@ -27,6 +27,7 @@
     <main class="main-content">
       <div class="detached-hud-bar" *ngIf="hudDetach()">
         <div class="detached-session" *ngIf="(animation?.sessionName$ | async) as sessionName" [title]="sessionName">{{ sessionName }}</div>
+  <div class="detached-lap" *ngIf="(animation?.currentLapInfo$ | async) as lap">Lap {{ lap.lapNumber || '?' }} • <span *ngIf="lap.lapDuration as ld">{{ ld | number:'1.2-2' }}s</span> <span *ngIf="lap.speedTrap as st">• Trap {{ st }} km/h</span></div>
         <div class="detached-controls">
           <button class="hud-btn" (click)="animation?.playPause()" [title]="animation?.getIsPlaying() ? 'Pause' : 'Play'">{{ animation?.getIsPlaying() ? '⏸' : '▶' }}</button>
           <button class="hud-btn" (click)="animation?.restart()" title="Restart">↻</button>
@@ -73,6 +74,7 @@
       <main class="main-content mobile">
         <div class="detached-hud-bar" *ngIf="hudDetach()">
           <div class="detached-session" *ngIf="(animationMob?.sessionName$ | async) as sessionName" [title]="sessionName">{{ sessionName }}</div>
+          <div class="detached-lap" *ngIf="(animationMob?.currentLapInfo$ | async) as lap">Lap {{ lap.lapNumber || '?' }} • <span *ngIf="lap.lapDuration as ld">{{ ld | number:'1.2-2' }}s</span> <span *ngIf="lap.speedTrap as st">• Trap {{ st }} km/h</span></div>
           <div class="detached-controls">
             <button class="hud-btn" (click)="animationMob?.playPause()" [title]="animationMob?.getIsPlaying() ? 'Pause' : 'Play'">{{ animationMob?.getIsPlaying() ? '⏸' : '▶' }}</button>
             <button class="hud-btn" (click)="animationMob?.restart()" title="Restart">↻</button>

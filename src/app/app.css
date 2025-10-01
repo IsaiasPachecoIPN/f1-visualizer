@@ -92,6 +92,22 @@
 .main-animation {
   flex-grow: 1;
   min-height: 400px;
+  /* Keep padding visible; clipping handled by inner animation container */
+  position: relative;
+}
+
+/* Ensure animation component container fills and clips correctly */
+.main-animation > app-animation .animation-container,
+.main-animation > app-animation div.animation-container {
+  height: 100% !important;
+  overflow: hidden; /* clip zoom/pan without removing outer padding */
+  border-radius: 4px; /* subtle rounding inside */
+}
+
+/* Defensive: canvas should never exceed wrapper width */
+.main-animation canvas {
+  max-width: 100%;
+  display: block;
 }
 
 /* Detached HUD (appears outside canvas below 1706px) */
@@ -121,6 +137,7 @@
   .detached-hud-bar .detached-controls { display: flex; align-items: center; gap: 6px; }
   .detached-hud-bar .hud-btn { background: rgba(255,255,255,0.9); border:1px solid #ccc; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:14px; }
   .detached-hud-bar .hud-btn.toggle { font-size:16px; }
+  .detached-hud-bar .detached-lap { font-size: 12px; color: #fff; opacity: .9; display:flex; gap:.5rem; flex-wrap:wrap; }
   /* Hide in-canvas overlay HUD elements when detached active */
   app-animation .hud-session,
   app-animation .hud-controls { display: none !important; }
