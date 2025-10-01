@@ -919,105 +919,138 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
   private setupCanvasEventListeners(): void {
     const canvas = this.canvas.nativeElement;
+    // Prefer unified Pointer Events for mouse + touch + pen
+    if ((window as any).PointerEvent) {
+      canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+        if (e.button !== 0) return; // primary button / touch contact
+        this.isDragging = true;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+        canvas.setPointerCapture(e.pointerId);
+        canvas.style.cursor = 'grabbing';
+      });
+
+      canvas.addEventListener('pointermove', (e: PointerEvent) => {
+        if (!this.isDragging) {
+          // Hover logic still for mouse, skip for touch
+          if (e.pointerType === 'mouse') {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            this.debouncedHoverCheck(mouseX, mouseY, e.clientX, e.clientY);
+          }
+          return;
+        }
+        const deltaX = e.clientX - this.lastMouseX;
+        const deltaY = e.clientY - this.lastMouseY;
+        this.panX += deltaX;
+        this.panY += deltaY;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+        this.updateLockedTooltipPosition();
+        this.drawTrack();
+        // Prevent page scroll on touch while panning
+        if (e.pointerType === 'touch') e.preventDefault();
+      }, { passive: false });
+
+      const endPointer = (e: PointerEvent) => {
+        if (this.isDragging) {
+          this.isDragging = false;
+          canvas.style.cursor = 'grab';
+          try { canvas.releasePointerCapture(e.pointerId); } catch {}
+        }
+      };
+      canvas.addEventListener('pointerup', endPointer);
+      canvas.addEventListener('pointercancel', endPointer);
+      canvas.addEventListener('pointerleave', () => { this.isDragging = false; canvas.style.cursor = 'grab'; });
+    }
     
     // Mouse wheel for zoom
     canvas.addEventListener('wheel', (e) => {
+      // Only handle zoom when user holds Ctrl (Windows/Linux) or Meta/Cmd (macOS)
+      if (!(e.ctrlKey || e.metaKey)) {
+        return; // allow normal scroll / ignore zoom
+      }
+      // Prevent browser page zoom
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
-      
-      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+
+      // Use smaller incremental factor for finer control
+      const direction = e.deltaY > 0 ? -1 : 1; // wheel down -> zoom out
+      const step = 0.12; // sensitivity
+      const zoomFactor = 1 + direction * step;
       const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * zoomFactor));
-      
+
       if (newZoom !== this.zoom) {
-        // Zoom towards mouse position
         const worldX = (mouseX - this.panX) / this.zoom;
         const worldY = (mouseY - this.panY) / this.zoom;
-        
         this.zoom = newZoom;
-        
         this.panX = mouseX - worldX * this.zoom;
         this.panY = mouseY - worldY * this.zoom;
-        
-        // Update locked tooltip position if present
         this.updateLockedTooltipPosition();
-        
         this.drawTrack();
       }
-    });
+    }, { passive: false });
 
-    // Mouse down for pan start
-    canvas.addEventListener('mousedown', (e) => {
-      this.isDragging = true;
-      this.lastMouseX = e.clientX;
-      this.lastMouseY = e.clientY;
-      canvas.style.cursor = 'grabbing';
-    });
-
-    // Mouse move for pan
-    canvas.addEventListener('mousemove', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      if (this.isDragging) {
-        const deltaX = e.clientX - this.lastMouseX;
-        const deltaY = e.clientY - this.lastMouseY;
-        
-        this.panX += deltaX;
-        this.panY += deltaY;
-        
+    // Fallback classic mouse listeners (skip if pointer events present to avoid duplication)
+    if (!(window as any).PointerEvent) {
+      canvas.addEventListener('mousedown', (e) => {
+        this.isDragging = true;
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
-        
-        // Update locked tooltip position if present
-        this.updateLockedTooltipPosition();
-        
-        this.drawTrack();
-      } else {
-        // Check for circle-only hover with debouncing for performance
-        this.debouncedHoverCheck(mouseX, mouseY, e.clientX, e.clientY);
-      }
-    });
-
-    // Click to lock/show tooltip only when clicking driver number circle
-    canvas.addEventListener('click', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      const clickedDriver = this.findDriverHitAt(mouseX, mouseY);
-      if (clickedDriver !== null) {
-        // Toggle lock if same driver clicked while locked
-        if (this.tooltipLockedDriver === clickedDriver) {
-          this.tooltipLockedDriver = null;
-          this.hideTooltip(true); // force hide
-          return;
+        canvas.style.cursor = 'grabbing';
+      });
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        if (this.isDragging) {
+          const deltaX = e.clientX - this.lastMouseX;
+            const deltaY = e.clientY - this.lastMouseY;
+            this.panX += deltaX;
+            this.panY += deltaY;
+            this.lastMouseX = e.clientX;
+            this.lastMouseY = e.clientY;
+            this.updateLockedTooltipPosition();
+            this.drawTrack();
+        } else {
+          this.debouncedHoverCheck(mouseX, mouseY, e.clientX, e.clientY);
         }
-        // Lock to new driver and show
-        this.tooltipLockedDriver = clickedDriver;
-        this.showCarTooltip(clickedDriver, e.clientX, e.clientY, true);
-      } else {
-        // Click outside unlocks and hides
-        if (this.tooltipLockedDriver !== null) {
-          this.tooltipLockedDriver = null;
-          this.hideTooltip(true);
+      });
+      canvas.addEventListener('mouseup', () => { this.isDragging = false; canvas.style.cursor = 'grab'; });
+      canvas.addEventListener('mouseleave', () => { this.isDragging = false; canvas.style.cursor = 'default'; this.hideTooltip(); });
+      canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const clickedDriver = this.findDriverHitAt(mouseX, mouseY);
+        if (clickedDriver !== null) {
+          if (this.tooltipLockedDriver === clickedDriver) { this.tooltipLockedDriver = null; this.hideTooltip(true); return; }
+          this.tooltipLockedDriver = clickedDriver;
+          this.showCarTooltip(clickedDriver, e.clientX, e.clientY, true);
+        } else if (this.tooltipLockedDriver !== null) {
+          this.tooltipLockedDriver = null; this.hideTooltip(true);
         }
-      }
-    });
-
-    // Mouse up for pan end
-    canvas.addEventListener('mouseup', () => {
-      this.isDragging = false;
-      canvas.style.cursor = 'grab';
-    });
-
-    // Mouse leave to stop dragging and hide tooltip
-    canvas.addEventListener('mouseleave', () => {
-      this.isDragging = false;
-      canvas.style.cursor = 'default';
-      this.hideTooltip();
-    });
+      });
+    } else {
+      // Separate click handler (pointerup) for locking tooltip when pointer events active
+      canvas.addEventListener('pointerup', (e: PointerEvent) => {
+        if (e.button !== 0) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const clickedDriver = this.findDriverHitAt(mouseX, mouseY);
+        if (clickedDriver !== null) {
+          if (this.tooltipLockedDriver === clickedDriver) { this.tooltipLockedDriver = null; this.hideTooltip(true); return; }
+          this.tooltipLockedDriver = clickedDriver;
+          this.showCarTooltip(clickedDriver, e.clientX, e.clientY, true);
+        } else if (this.tooltipLockedDriver !== null) {
+          this.tooltipLockedDriver = null; this.hideTooltip(true);
+        }
+      });
+    }
 
     // Set initial cursor
     canvas.style.cursor = 'grab';
@@ -1380,10 +1413,23 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
   @HostListener('window:keydown', ['$event'])
   onKeyDown(e: KeyboardEvent) {
-    if (e.key.toLowerCase() === 'h') {
+    const key = e.key.toLowerCase();
+    if (key === 'h') {
       this.showHoverDebug = !this.showHoverDebug;
       console.log(`🔍 Hover debug ${this.showHoverDebug ? 'enabled' : 'disabled'}`);
-      this.drawTrack(); // redraw to add/remove outlines
+      this.drawTrack();
+      return;
+    }
+    if (key === ' ' || key === 'spacebar') {
+      // Avoid triggering when user is typing in an input/textarea/contenteditable
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      e.preventDefault();
+      this.playPause();
+      console.log('␣ Spacebar toggle play/pause');
+      return;
     }
   }
 

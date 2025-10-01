@@ -46,6 +46,13 @@ export class App {
   useDrawer = computed(() => this.isTablet() || this.isMobile());
   hudDetach = computed(() => this.viewportWidth() < 1706);
 
+  // Help modal state
+  helpOpen = signal(false);
+
+  openHelp() { this.helpOpen.set(true); }
+  closeHelp() { this.helpOpen.set(false); }
+  toggleHelp() { this.helpOpen.update(v => !v); }
+
   toggleDrawer() {
     if (!this.useDrawer()) return;
     this.drawerOpen.update(v => !v);
@@ -60,5 +67,12 @@ export class App {
     this.viewportWidth.set(window.innerWidth);
     // Auto close if switching to desktop
     if (!this.useDrawer()) this.drawerOpen.set(false);
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && this.helpOpen()) {
+      this.closeHelp();
+    }
   }
 }

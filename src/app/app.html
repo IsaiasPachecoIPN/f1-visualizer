@@ -3,7 +3,9 @@
     <button z-button zType="ghost" zSize="sm" class="hamburger" (click)="toggleDrawer()" *ngIf="useDrawer()">
       <span class="icon-menu text-xl"></span>
     </button>
-    <h1>F1 Track Visualizer</h1>
+    <h1>F1 Track Visualizer
+      <button type="button" class="help-btn" (click)="openHelp()" aria-label="Open help" title="Simulator Help">?</button>
+    </h1>
   </header>
 
   <!-- Desktop / Large layout -->
@@ -100,3 +102,85 @@
 </div>
 <app-loading></app-loading>
 <router-outlet />
+
+<!-- Help Modal -->
+<div class="help-overlay" *ngIf="helpOpen()" (click)="closeHelp()">
+  <div class="help-dialog" role="dialog" aria-modal="true" aria-label="Simulator Help" (click)="$event.stopPropagation()">
+    <header class="help-header">
+      <h2>Simulator Guide</h2>
+      <button class="close" (click)="closeHelp()" aria-label="Close help">×</button>
+    </header>
+    <div class="help-body">
+      <section class="intro">
+        <p>Explore the live Formula 1 session: monitor drivers, analyze telemetry-like cues, and control a time-synced replay. Use this guide to unlock every panel.</p>
+        <ul class="quick-tips">
+          <li><strong>Ctrl/Cmd + Scroll</strong>: zoom canvas</li>
+          <li><strong>Space</strong>: play / pause simulation</li>
+          <li><strong>Esc</strong>: close dialogs</li>
+        </ul>
+      </section>
+      <z-accordion zType="multiple" class="help-accordion">
+        <z-accordion-item zTitle="Drivers" zValue="drivers-help">
+          <div class="help-block">
+            <p>The Drivers panel lists every car currently in session order (or last known). Use the checklist to toggle visibility:</p>
+            <ul>
+              <li><strong>Checked</strong>: Car is rendered on track.</li>
+              <li><strong>Unchecked</strong>: Car is hidden (not removed from timing logic).</li>
+              <li><strong>Select All / None</strong>: Bulk toggle for rapid focus (e.g., just leaders or a battle pack).</li>
+            </ul>
+          </div>
+        </z-accordion-item>
+        <z-accordion-item zTitle="Race Info" zValue="raceinfo-help">
+          <div class="help-block">
+            <p>Switch between <em>sessions</em> (e.g., Practice, Qualifying segments, Race) if data is available. Displays contextual metadata:</p>
+            <ul>
+              <li><strong>Date & Local Time</strong></li>
+              <li><strong>Circuit & Country</strong></li>
+              <li><strong>Weather Snapshot</strong>: Temperature, wind, conditions (where provided)</li>
+            </ul>
+            <p>Session changes reinitialize playback context.</p>
+          </div>
+        </z-accordion-item>
+        <z-accordion-item zTitle="Live Positions" zValue="positions-help">
+          <div class="help-block">
+            <p>A live leaderboard style stream tracking evolving order:</p>
+            <ul>
+              <li><strong>Position #</strong> updates as overtakes are computed.</li>
+              <li><strong>Speed & Gear</strong> give a snapshot of current state (approximate display).</li>
+              <li>Use alongside the canvas to validate strategic moves.</li>
+            </ul>
+          </div>
+        </z-accordion-item>
+        <z-accordion-item zTitle="Comments" zValue="comments-help">
+          <div class="help-block">
+            <p>Stream of contextual commentary or synthesized notes highlighting key race moments, incidents, pace shifts, and strategy beats.</p>
+            <p>Use it to jump back mentally to pivotal laps while scrubbing or replaying.</p>
+          </div>
+        </z-accordion-item>
+        <z-accordion-item zTitle="Simulation Controls" zValue="simulation-help">
+          <div class="help-block">
+            <p>The playback HUD manipulates temporal flow and view:</p>
+            <ul>
+              <li><strong>Play / Pause</strong>: Toggle real-time progression of positional interpolation.</li>
+              <li><strong>Restart</strong>: Return to lap 1 / initial state.</li>
+              <li><strong>Speed − / +</strong>: Adjust multiplier (e.g., 0.5x for analysis, 4x to fast-forward).</li>
+              <li><strong>Zoom</strong>: Mouse wheel or pinch (touch) to scale viewport around pointer focus.</li>
+              <li><strong>Pan</strong>: Click-drag or two-finger drag (touch).</li>
+              <li><strong>Center</strong>: (Planned) recenters camera to track bounds.</li>
+            </ul>
+            <p>Status HUD shows session name, current lap, elapsed lap time, and peak trap speed seen so far.</p>
+          </div>
+        </z-accordion-item>
+        <z-accordion-item zTitle="Cars & Tooltips" zValue="cars-help">
+          <div class="help-block">
+            <p>Hover a car to reveal an on-hover tooltip with enriched metadata (driver code, team color, perhaps last sector pace). This improves spatial awareness when the pack compresses.</p>
+            <p>Hidden cars (unchecked) won’t display tooltips until re-enabled.</p>
+          </div>
+        </z-accordion-item>
+      </z-accordion>
+    </div>
+    <footer class="help-footer">
+      <button z-button zSize="sm" (click)="closeHelp()">Close</button>
+    </footer>
+  </div>
+</div>
