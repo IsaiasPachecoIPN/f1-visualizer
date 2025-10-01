@@ -171,7 +171,9 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     this.setupResponsiveCanvas();
     this.setupCanvasEventListeners();
     
-    this.loadAllDriverData();
+  // Begin a composite loading block that will only end after initial car painting & resizing
+  this.loadingService.startBlock('initialization');
+  this.loadAllDriverData();
 
     this.subscriptions.push(
       this.animationControlService.start$.subscribe(() => this.startAnimation()),
@@ -201,8 +203,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         this.raceStartTime = null;
         this.currentSimulationTime = null;
         this.stopAnimation();
-        // Ensure loading modal is hidden when session changes
-        this.loadingService.hide();
+  // Do not hide: keep initialization block semantics; session change may trigger new load cycle
         this.loadAllDriverData();
       }),
       this.driverVisibility.visibility$.subscribe((mapRec: Record<number, boolean>) => {
@@ -232,8 +233,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     // Update cars
     this.updateCarsAtCurrentTime();
     
-    // Ensure loading modal is hidden after force repaint
-    this.loadingService.hide();
+  // Force repaint is usually post-initialization; do not end blocks here
     
     console.log('✅ Force repaint completed');
   }
@@ -290,9 +290,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     console.log('✅ All prerequisites met, painting cars...');
     this.forceRepaintCars();
     
-    // Ensure loading modal is explicitly hidden
-    console.log('🔄 Hiding loading modal after manual car initialization');
-    this.loadingService.hide();
+  // Manual car initialization does not automatically end global block; caller decides
   }
 
   ngOnDestroy(): void {
@@ -424,32 +422,28 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         
         console.log('✅ Initial car painting completed - cars should be visible now');
         
-        // Explicitly hide loading modal after car painting is complete
-        console.log('🔄 Hiding loading modal after car painting completion');
-        this.loadingService.hide();
+  // End initialization block only now (all assets ready & first paint done)
+  console.log('🔄 Ending initialization loading block after first paint');
+  this.loadingService.endBlock('initialization');
         
         // Add a safety mechanism: force repaint after a short delay to ensure cars are visible
         setTimeout(() => {
           console.log('🔄 Safety repaint after 1 second...');
           this.forceRepaintCars();
-          // Ensure loading is hidden in safety timer too
-          this.loadingService.hide();
         }, 1000);
         
         // Another safety check after 3 seconds
         setTimeout(() => {
           if (this.carImages.size > 0 && this.drivers.length > 0) {
             console.log('🔄 Safety repaint after 3 seconds...');
-            this.forceRepaintCars();
-            // Final safety to ensure loading is hidden
-            this.loadingService.hide();
+      this.forceRepaintCars();
           }
         }, 3000);
       }).catch(error => {
         console.error('❌ Error loading car images:', error);
-        // Ensure loading modal is hidden even if there's an error
-        console.log('🔄 Hiding loading modal due to error');
-        this.loadingService.hide();
+    // End initialization block on error so user is not stuck
+    console.log('🔄 Ending initialization loading block due to error');
+    this.loadingService.endBlock('initialization');
       });
     });
 
