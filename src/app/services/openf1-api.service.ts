@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of, timer } from 'rxjs';
+import { Observable, of, timer, forkJoin } from 'rxjs';
 import { tap, map, shareReplay, finalize, switchMap, delay, concatMap } from 'rxjs/operators';
 import { LoadingService } from './loading.service';
 import { IndexedDbCacheService } from './indexeddb-cache.service';
@@ -24,12 +24,13 @@ export class Openf1ApiService {
   private driverDataCache: Map<string, any[]> = new Map();
   private driverObservableCache = new Map<string, Observable<any[]>>();
   private sessionKey: number = 9181;
+  private readonly SELECTED_SESSION_STORAGE_KEY = 'selectedSessionKey';
   private halfRaceTrackCacheKeyPrefix = 'halfRaceTrack';
 
   // Rate limiting properties
   private lastRequestTime: number = 0;
   private requestQueue: Array<() => Observable<any>> = [];
-  private readonly MIN_REQUEST_INTERVAL = 350; // 350ms between requests (allows ~2.8 requests/second, safely under 3/second)
+  private readonly MIN_REQUEST_INTERVAL = 1000; // 350ms between requests (allows ~2.8 requests/second, safely under 3/second)
   private isProcessingQueue = false;
 
   // Observable caching for sessions (to prevent multiple calls)
@@ -52,6 +53,22 @@ export class Openf1ApiService {
     private loadingService: LoadingService,
     private idb: IndexedDbCacheService
   ) {
+    // Restore previously selected session (if any) before hydrating caches so subsequent
+    // cache hydration aligns with the correct session key.
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const stored = window.localStorage.getItem(this.SELECTED_SESSION_STORAGE_KEY);
+        if (stored) {
+          const parsed = parseInt(stored, 10);
+          if (!isNaN(parsed) && parsed > 0) {
+            this.sessionKey = parsed;
+            console.log(`🔁 Restored persisted session key: ${this.sessionKey}`);
+          }
+        }
+      }
+    } catch {
+      // Ignore storage access issues (private mode / SSR etc.)
+    }
     this.hydrateCaches();
   }
 
@@ -170,6 +187,14 @@ export class Openf1ApiService {
   setSessionKey(sessionKey: number) {
     if (this.sessionKey !== sessionKey) {
       this.sessionKey = sessionKey;
+      // Persist new selection so it survives page reloads
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(this.SELECTED_SESSION_STORAGE_KEY, String(sessionKey));
+        }
+      } catch {
+        // Ignore persistence failure
+      }
       this.cache.clear();
       this.driverDataCache.clear();
       this.driverObservableCache.clear();
@@ -186,7 +211,12 @@ export class Openf1ApiService {
       // Clear session-specific observable caches
       this.sessionInfoObservableCache = null;
   this.weatherObservableCache = null;
+      console.log(`🧹 Switched session to ${sessionKey}. Cleared caches and persisted selection.`);
     }
+  }
+
+  getSessionKey(): number {
+    return this.sessionKey;
   }
 
   getSessions(year: number): Observable<any[]> {
@@ -897,5 +927,18 @@ export class Openf1ApiService {
         });
       });
     });
+  }
+
+  /**
+   * Preload a minimal set of data for the newly selected session so the UI can safely reload
+   * knowing that caches are hydrated. This reduces the perceived blank state post-refresh.
+   * Currently loads: session info, drivers list, and position data (lightweight vs full location batches).
+   */
+  preloadCoreDataForSession(): Observable<void> {
+    return forkJoin([
+      this.getSessionInfo(),
+      this.getDrivers(),
+      this.getPositionData()
+    ]).pipe(map(() => void 0));
   }
 }

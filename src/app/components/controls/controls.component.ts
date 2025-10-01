@@ -44,7 +44,8 @@ export class ControlsComponent implements OnInit {
 
   ngOnInit(): void {
     // No need to subscribe here anymore - the template will use async pipe
-    console.log('🎮 Controls component initialized');
+  this.selectedSession = this.openf1ApiService.getSessionKey();
+  console.log('🎮 Controls component initialized. Restored selected session:', this.selectedSession);
   }
 
   onSessionChange(event: Event): void {
@@ -52,6 +53,21 @@ export class ControlsComponent implements OnInit {
     this.selectedSession = parseInt(sessionKey, 10);
     this.openf1ApiService.setSessionKey(this.selectedSession);
     this.animationControlService.changeSession(this.selectedSession);
+    // Preload core data and then force a reload so all components initialize cleanly with new session
+    this.openf1ApiService.preloadCoreDataForSession().subscribe({
+      next: () => {
+        console.log('✅ Core data preloaded for session', this.selectedSession, '- reloading page');
+        try {
+          window.location.reload();
+        } catch {
+          // fallback: no-op
+        }
+      },
+      error: (err) => {
+        console.warn('⚠️ Failed preloading core data before reload, reloading anyway', err);
+        try { window.location.reload(); } catch {}
+      }
+    });
   }
 
   onStartPause(): void {
