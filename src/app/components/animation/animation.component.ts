@@ -3,6 +3,7 @@ import { CommonModule, DatePipe } from '@angular/common';
 import { Openf1ApiService } from '../../services/openf1-api.service';
 import { AnimationControlService } from '../../services/animation-control.service';
 import { PositionService } from '../../services/position.service';
+import { DriverVisibilityService } from 'src/app/services/driver-visibility.service';
 import { RaceCommentaryService } from '../../services/race-commentary.service';
 import { LoadingService } from '../../services/loading.service';
 import { CarTooltipComponent } from '../car-tooltip/car-tooltip.component';
@@ -97,6 +98,7 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
   // Race sequence tracking
   private raceSequenceStarted = false;
+  private visibilityMap: Record<number, boolean> = {};
 
   constructor(
     private openf1ApiService: Openf1ApiService,
@@ -105,7 +107,8 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
     private raceCommentaryService: RaceCommentaryService,
     private loadingService: LoadingService,
     private cdr: ChangeDetectorRef,
-    private ngZone: NgZone
+    private ngZone: NgZone,
+    private driverVisibility: DriverVisibilityService
   ) {
     // Initialize speed multiplier from the service
     this.speedMultiplier = this.animationControlService.getSpeedMultiplier();
@@ -194,6 +197,14 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
         // Ensure loading modal is hidden when session changes
         this.loadingService.hide();
         this.loadAllDriverData();
+      }),
+      this.driverVisibility.visibility$.subscribe((mapRec: Record<number, boolean>) => {
+        this.visibilityMap = mapRec;
+        if (this.currentSimulationTime && this.ctx) {
+          this.ctx.clearRect(0, 0, this.canvas.nativeElement.width, this.canvas.nativeElement.height);
+          this.drawTrack();
+          this.updateCarsAtCurrentTime();
+        }
       })
     );
   }
@@ -726,12 +737,16 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
 
     let carsPainted = 0;
     
-    this.drivers.forEach(driver => {
+  this.drivers.forEach(driver => {
       const driverTrajectory = this.trajectories.get(driver.driver_number);
       const carImage = this.carImages.get(driver.driver_number);
       
       console.log(`🏎️ Driver ${driver.driver_number}: trajectory=${driverTrajectory?.length || 0} points, image=${carImage ? 'loaded' : 'missing'}`);
       
+      if (this.visibilityMap[driver.driver_number] === false) {
+        console.log(`🚫 Skipping hidden driver ${driver.driver_number}`);
+        return; 
+      }
       if (driverTrajectory && driverTrajectory.length > 0) {
         const position = this.findPositionAtTime(driverTrajectory, this.currentSimulationTime!);
         if (position) {

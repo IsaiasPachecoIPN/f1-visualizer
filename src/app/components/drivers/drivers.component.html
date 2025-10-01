@@ -1,9 +1,20 @@
-<div [ngStyle]="{ padding: '10px' }">
-  <ul>
-    <li *ngFor="let driver of drivers" style="display: flex; align-items: center; margin-bottom: 5px;">
+<div class="drivers-wrapper" [ngStyle]="{ padding: '6px 8px' }">
+  <div class="drivers-bulk-toggle" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+  <z-checkbox [(ngModel)]="_allVisibleModel" (checkChange)="toggleAll(_allVisibleModel)">All</z-checkbox>
+    <span style="font-size:12px;opacity:.7;">{{ visibleCount() }} / {{ drivers.length }} visible</span>
+    <button type="button" class="hud-btn" style="margin-left:auto;padding:4px 8px;font-size:12px;" (click)="toggleAll(!allVisible())">
+      {{ allVisible() ? 'Hide All' : 'Show All' }}
+    </button>
+  </div>
+  <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto;">
+    <li *ngFor="let driver of drivers" style="display:flex;align-items:center;gap:8px;">
+  <z-checkbox [(ngModel)]="_driverVisibility[driver.driver_number]" (checkChange)="toggleDriver(driver.driver_number,_driverVisibility[driver.driver_number])"></z-checkbox>
       <app-car [color]="driver.car_color"></app-car>
-      <img [src]="driver.headshot_url" alt="{{ driver.full_name }}" width="50" style="margin-left: 10px; margin-right: 10px;">
-      <span>{{ driver.full_name }} ({{ driver.driver_number }}) - {{ driver.team_name }}</span>
+      <img [src]="driver.headshot_url" alt="{{ driver.full_name }}" width="40" height="40" style="object-fit:cover;border-radius:4px;" />
+      <div style="display:flex;flex-direction:column;line-height:1.1;flex:1;">
+        <span style="font-weight:600;font-size:13px;">{{ driver.full_name }} <span style="opacity:.6">({{ driver.driver_number }})</span></span>
+        <span style="font-size:11px;opacity:.7;">{{ driver.team_name }}</span>
+      </div>
     </li>
   </ul>
 </div>
