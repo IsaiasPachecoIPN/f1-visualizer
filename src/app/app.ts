@@ -44,6 +44,7 @@ export class App {
   isTablet = computed(() => this.viewportWidth() <= 1024 && this.viewportWidth() > 640);
   isMobile = computed(() => this.viewportWidth() <= 640);
   useDrawer = computed(() => this.isTablet() || this.isMobile());
+  hudDetach = computed(() => this.viewportWidth() < 1706);
 
   toggleDrawer() {
     if (!this.useDrawer()) return;

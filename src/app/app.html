@@ -25,8 +25,19 @@
     </aside>
 
     <main class="main-content">
+      <div class="detached-hud-bar" *ngIf="hudDetach()">
+        <div class="detached-session" *ngIf="(animation?.sessionName$ | async) as sessionName" [title]="sessionName">{{ sessionName }}</div>
+        <div class="detached-controls">
+          <button class="hud-btn" (click)="animation?.playPause()" [title]="animation?.getIsPlaying() ? 'Pause' : 'Play'">{{ animation?.getIsPlaying() ? '⏸' : '▶' }}</button>
+          <button class="hud-btn" (click)="animation?.restart()" title="Restart">↻</button>
+            <button class="hud-btn" (click)="animation?.decreaseSpeed()" title="Slower">−</button>
+            <div class="speed-display">{{ animation?.getSpeedMultiplier() }}x</div>
+            <button class="hud-btn" (click)="animation?.increaseSpeed()" title="Faster">+</button>
+            <button class="hud-btn toggle" (click)="animation && animation.animationControlService.toggleShowAllDrivers()" title="Toggle drivers">👥</button>
+        </div>
+      </div>
       <div class="main-animation">
-        <app-animation></app-animation>
+        <app-animation #animation></app-animation>
       </div>
       <div class="comments-section">
         <h2>Comments</h2>
@@ -60,8 +71,19 @@
       </div>
 
       <main class="main-content mobile">
+        <div class="detached-hud-bar" *ngIf="hudDetach()">
+          <div class="detached-session" *ngIf="(animationMob?.sessionName$ | async) as sessionName" [title]="sessionName">{{ sessionName }}</div>
+          <div class="detached-controls">
+            <button class="hud-btn" (click)="animationMob?.playPause()" [title]="animationMob?.getIsPlaying() ? 'Pause' : 'Play'">{{ animationMob?.getIsPlaying() ? '⏸' : '▶' }}</button>
+            <button class="hud-btn" (click)="animationMob?.restart()" title="Restart">↻</button>
+            <button class="hud-btn" (click)="animationMob?.decreaseSpeed()" title="Slower">−</button>
+            <div class="speed-display">{{ animationMob?.getSpeedMultiplier() }}x</div>
+            <button class="hud-btn" (click)="animationMob?.increaseSpeed()" title="Faster">+</button>
+            <button class="hud-btn toggle" (click)="animationMob && animationMob.animationControlService.toggleShowAllDrivers()" title="Toggle drivers">👥</button>
+          </div>
+        </div>
         <div class="main-animation">
-          <app-animation></app-animation>
+          <app-animation #animationMob></app-animation>
         </div>
         <z-card class="mobile-comments" zTitle="Comments">
           <app-comments></app-comments>

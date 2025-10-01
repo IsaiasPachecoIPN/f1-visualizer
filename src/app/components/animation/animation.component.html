@@ -4,21 +4,17 @@
     {{ currentTime | date:'HH:mm:ss':'UTC' }} <span class="tz">UTC</span>
   </div>
 
-  <!-- Session Name (top-center) -->
-  <div class="hud-session" *ngIf="(sessionName$ | async) as sessionName" [title]="sessionName">
-    {{ sessionName }}
-  </div>
-
-  <!-- Controls (top-right, left of zoom buttons) -->
-  <div class="hud-controls">
-    <button class="hud-btn" (click)="playPause()" [title]="getIsPlaying() ? 'Pause' : 'Play'">
-      {{ getIsPlaying() ? '⏸' : '▶' }}
-    </button>
-    <button class="hud-btn" (click)="restart()" title="Restart">↻</button>
-    <button class="hud-btn" (click)="decreaseSpeed()" title="Slower">−</button>
-    <div class="speed-display">{{ getSpeedMultiplier() }}x</div>
-    <button class="hud-btn" (click)="increaseSpeed()" title="Faster">+</button>
-    <button class="hud-btn toggle" (click)="animationControlService.toggleShowAllDrivers()" title="Toggle drivers">👥</button>
+  <!-- In-canvas HUD (hidden when detached HUD active via global CSS override) -->
+  <div class="hud-responsive-group">
+    <div class="hud-session" *ngIf="(sessionName$ | async) as sessionName" [title]="sessionName">{{ sessionName }}</div>
+    <div class="hud-controls">
+      <button class="hud-btn" (click)="playPause()" [title]="getIsPlaying() ? 'Pause' : 'Play'">{{ getIsPlaying() ? '⏸' : '▶' }}</button>
+      <button class="hud-btn" (click)="restart()" title="Restart">↻</button>
+      <button class="hud-btn" (click)="decreaseSpeed()" title="Slower">−</button>
+      <div class="speed-display">{{ getSpeedMultiplier() }}x</div>
+      <button class="hud-btn" (click)="increaseSpeed()" title="Faster">+</button>
+      <button class="hud-btn toggle" (click)="animationControlService.toggleShowAllDrivers()" title="Toggle drivers">👥</button>
+    </div>
   </div>
 
   <!-- Existing zoom buttons -->
@@ -158,5 +154,14 @@ canvas {
   color: #ffffff;
   letter-spacing: .5px;
   backdrop-filter: blur(4px);
+}
+
+/* Wrapper defaults (no effect on wide screens) */
+.hud-responsive-group { display: contents; }
+
+/* Breakpoint: detach session & controls from overlay below 1706px */
+/* (Former inline mode removed; detached HUD lives outside now) */
+@media (max-width: 1706px) {
+  .hud-session, .hud-controls { display: none !important; }
 }
 </style>

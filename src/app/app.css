@@ -94,6 +94,38 @@
   min-height: 400px;
 }
 
+/* Detached HUD (appears outside canvas below 1706px) */
+.detached-hud-bar {
+  display: none;
+}
+@media (max-width: 1706px) {
+  .detached-hud-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.6);
+  padding: 6px 12px;
+  border-radius: 10px;
+  margin: 8px 0;
+    gap: 1rem;
+  }
+  .detached-hud-bar .detached-session {
+    font-weight: 600;
+    font-size: 14px;
+    color: #fff;
+    max-width: 55%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .detached-hud-bar .detached-controls { display: flex; align-items: center; gap: 6px; }
+  .detached-hud-bar .hud-btn { background: rgba(255,255,255,0.9); border:1px solid #ccc; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:14px; }
+  .detached-hud-bar .hud-btn.toggle { font-size:16px; }
+  /* Hide in-canvas overlay HUD elements when detached active */
+  app-animation .hud-session,
+  app-animation .hud-controls { display: none !important; }
+}
+
 .comments-section {
   min-height: 200px;
   flex-shrink: 0;

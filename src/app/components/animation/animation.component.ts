@@ -786,23 +786,49 @@ export class AnimationComponent implements AfterViewInit, OnDestroy {
   }
 
   private setupResponsiveCanvas(): void {
-    this.resizeCanvas();
+  this.resizeCanvas();
+  // Recalculate on window resize
+  window.addEventListener('resize', () => this.resizeCanvas());
   }
 
   private resizeCanvas(): void {
     const canvas = this.canvas.nativeElement;
-    const container = canvas.parentElement;
-    if (container) {
-      const containerWidth = container.clientWidth;
-      const containerHeight = container.clientHeight || Math.min(containerWidth * 0.6, 600);
-      
-      canvas.width = containerWidth;
-      canvas.height = containerHeight;
-      
-      // Redraw after resize
-      if (this.trackTrajectory.length > 0) {
-        this.drawTrack();
+    const container = canvas.parentElement as HTMLElement | null;
+    if (!container) return;
+
+    const containerWidth = container.clientWidth;
+    let containerHeight = container.clientHeight;
+
+    // If container has no explicit height yet, derive a proportional one
+    if (!containerHeight || containerHeight < 50) {
+      containerHeight = Math.min(containerWidth * 0.55, 720);
+    }
+
+    // Adjust for detached HUD bar if present above (desktop scenario)
+    const rootMain = container.closest('.main-content');
+    if (rootMain && window.innerWidth < 1703) {
+      const hud = rootMain.querySelector('.detached-hud-bar') as HTMLElement | null;
+      if (hud) {
+        const hudStyles = getComputedStyle(hud);
+        const hudHeight = hud.offsetHeight + parseFloat(hudStyles.marginTop) + parseFloat(hudStyles.marginBottom);
+        // Reduce available height only if HUD is absolutely positioned? If not absolute it's already affecting layout.
+        const hudIsAbsolute = hudStyles.position === 'absolute';
+        if (hudIsAbsolute) {
+          containerHeight = Math.max(100, containerHeight - hudHeight - 8);
+        }
       }
+    }
+
+    // Apply pixel dimensions to backing store
+    canvas.width = containerWidth;
+    canvas.height = containerHeight;
+
+    // Reflect sizing via style to avoid overflow
+    canvas.style.width = containerWidth + 'px';
+    canvas.style.height = containerHeight + 'px';
+
+    if (this.trackTrajectory.length > 0) {
+      this.drawTrack();
     }
   }
 
