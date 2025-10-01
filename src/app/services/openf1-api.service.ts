@@ -35,6 +35,7 @@ export class Openf1ApiService {
   // Observable caching for sessions (to prevent multiple calls)
   private sessionsObservableCache = new Map<number, Observable<any[]>>();
   private sessionInfoObservableCache: Observable<any> | null = null;
+  private weatherObservableCache: Observable<any[]> | null = null; // cache in-flight weather request per session
 
   // Dynamic loading properties
   private loadedDataSegments: Map<string, any[]> = new Map();
@@ -184,6 +185,7 @@ export class Openf1ApiService {
       this.loadingCarDataChunkKeys.clear();
       // Clear session-specific observable caches
       this.sessionInfoObservableCache = null;
+  this.weatherObservableCache = null;
     }
   }
 
@@ -651,6 +653,44 @@ export class Openf1ApiService {
     );
 
     return this.sessionInfoObservableCache;
+  }
+
+  /**
+   * Fetch weather timeline for the current session.
+   * Returns an array of samples ordered by time (API already returns chronological order; we sort defensively).
+   * Cached in memory + IndexedDB (generic api cache) using the URL as key.
+   * Uses shareReplay so multiple subscribers don't trigger extra HTTP calls.
+   */
+  getWeather(): Observable<any[]> {
+    const url = `${this.baseUrl}/weather?session_key=${this.sessionKey}`;
+
+    // Memory cache hit
+    if (this.cache.has(url)) {
+      return of(this.cache.get(url));
+    }
+
+    // In-flight observable reuse
+    if (this.weatherObservableCache) {
+      return this.weatherObservableCache;
+    }
+
+    // Light weight loading indicator (avoid blocking global loader if session info already showing)
+    this.loadingService.show();
+    this.weatherObservableCache = this.makeRateLimitedRequest<any[]>(url).pipe(
+      map(data => Array.isArray(data) ? [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) : []),
+      tap(sorted => {
+        this.cache.set(url, sorted);
+        this.persistApiCache();
+      }),
+      finalize(() => {
+        this.loadingService.hide();
+        // keep observable for replay but allow new fetch after some minutes if needed (optional TTL could be added)
+        this.weatherObservableCache = null;
+      }),
+      shareReplay(1)
+    );
+
+    return this.weatherObservableCache;
   }
 
   getSessionTimeBounds(): Observable<{startTime: Date, endTime: Date}> {

@@ -1,9 +1,58 @@
-<div *ngIf="sessionInfo$ | async as sessionInfo" [ngStyle]="{ padding: '10px', 'font-size': '13px', }">
-
-  <div [ngStyle]="{ 'font-size': '13px', 'font-weight': '600', margin: '0 0 8px 0' }">
-    <h2>Session Info</h2>
+<div *ngIf="sessionInfo$ | async as sessionInfo" class="race-info-wrapper">
+  <div class="session-header"><span class="session-title">Session Info</span></div>
+  <div class="session-grid">
+    <div class="session-field"><label>Circuit</label><span>{{ sessionInfo.circuit_short_name }}</span></div>
+    <div class="session-field"><label>Location</label><span>{{ sessionInfo.location }}</span></div>
+    <div class="session-field"><label>Date</label><span>{{ sessionInfo.date_start | date: 'longDate' }}</span></div>
   </div>
-  <p><strong>Circuit:</strong> {{ sessionInfo.circuit_short_name }}</p>
-  <p><strong>Location:</strong> {{ sessionInfo.location }}</p>
-  <p><strong>Date:</strong> {{ sessionInfo.date_start | date: 'longDate' }}</p>
+
+  <!-- Weather Widget -->
+  <div class="weather-card" *ngIf="latestWeather$ | async as w">
+    <div class="weather-main">
+      <div class="temp-block">
+        <div class="temp">{{ w.air_temperature | number:'1.0-1' }}°C</div>
+        <div class="sub">Air</div>
+      </div>
+      <div class="temp-block track">
+        <div class="temp">{{ w.track_temperature | number:'1.0-1' }}°C</div>
+        <div class="sub">Track</div>
+      </div>
+      <div class="meta">
+        <div class="row"><span class="icon" [class.rain]="w.rainfall">{{ w.rainfall ? '🌧️' : '☀️' }}</span> <span>{{ w.rainfall ? 'Rain' : 'Dry' }}</span></div>
+        <div class="row"><span>💧</span> Hum {{ w.humidity }}%</div>
+        <div class="row"><span>🧭</span> Wind {{ w.wind_speed | number:'1.1-1' }} m/s @ {{ w.wind_direction }}°</div>
+        <div class="row"><span>📏</span> Pressure {{ w.pressure }} mbar</div>
+        <div class="timestamp">Updated {{ w.date | date:'shortTime' }}</div>
+      </div>
+    </div>
+  </div>
 </div>
+
+<style>
+  .race-info-wrapper { padding:10px; font-size:13px; display:flex; flex-direction:column; gap:12px; }
+  .session-header { font-weight:600; font-size:13px; }
+  .session-title { background:linear-gradient(90deg,#ff294d,#ff9d1b); -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:700; letter-spacing:.5px; }
+  .session-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(90px,1fr)); gap:8px; }
+  .session-field { display:flex; flex-direction:column; background:rgba(255,255,255,0.03); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05); }
+  .session-field label { font-size:10px; text-transform:uppercase; letter-spacing:.8px; opacity:.65; }
+  .session-field span { font-size:12px; font-weight:600; }
+
+  .weather-card { position:relative; background:radial-gradient(circle at 20% 20%, rgba(255,255,255,0.08), rgba(10,10,15,0.6)); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:10px; backdrop-filter:blur(4px); }
+  .weather-main { display:flex; gap:12px; align-items:stretch; }
+  .temp-block { background:linear-gradient(135deg,#ff294d22,#ff9d1b22); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:6px 10px; display:flex; flex-direction:column; justify-content:center; min-width:68px; text-align:center; }
+  .temp-block.track { background:linear-gradient(135deg,#1b6dff22,#21d4fd22); }
+  .temp { font-size:18px; font-weight:700; line-height:1; }
+  .sub { font-size:10px; text-transform:uppercase; letter-spacing:1px; opacity:.7; margin-top:2px; }
+  .meta { display:flex; flex-direction:column; font-size:11px; gap:2px; flex:1; justify-content:flex-start; }
+  .meta .row { display:flex; align-items:center; gap:4px; }
+  .meta .timestamp { font-size:10px; opacity:.6; margin-top:4px; }
+  .mini-timeline { border-top:1px solid rgba(255,255,255,0.07); padding-top:6px; }
+  .spark-label { font-size:10px; text-transform:uppercase; letter-spacing:1px; opacity:.55; margin-bottom:4px; }
+  .spark-pills { display:flex; gap:6px; }
+  .pill { position:relative; display:flex; flex-direction:column; align-items:center; gap:2px; padding:2px 4px 4px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:6px; }
+  .pill .dot { width:8px; height:8px; border-radius:50%; background:linear-gradient(135deg,#ff294d,#ff9d1b); box-shadow:0 0 0 1px rgba(255,255,255,0.3); }
+  .pill .time { font-size:9px; opacity:.75; font-weight:600; }
+  @media (max-width: 600px) {
+    .weather-main { flex-wrap:wrap; }
+  }
+</style>
