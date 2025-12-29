@@ -16,6 +16,7 @@ import { ZardCardComponent } from '@shared/components/card/card.component';
 import { CommonModule } from '@angular/common';
 import { LoadingComponent } from './components/loading/loading.component';
 import { AnimationControlService } from './services/animation-control.service';
+import { inject } from '@vercel/analytics'
 
 @Component({
   selector: 'app-root',
@@ -58,6 +59,7 @@ export class App {
   ngOnInit() {
     this.carSizeScale.set(this.animationControl.getCarSizeScale());
     this.syncCarSizeSub = this.animationControl.carSizeScale$.subscribe(v => this.carSizeScale.set(v));
+    inject(); // Vercel Analytics
   }
   get sanitizedCarSvg(): SafeHtml {
     // Scale via wrapping container; do not alter intrinsic SVG viewBox
